@@ -1,0 +1,26 @@
+# Pi side of the iDraw wireless bridge (socat over Tailscale).
+# Exposes /dev/ttyACM0 as a raw TCP stream on the Tailscale IP, port 4000.
+#
+# Install on the Pi (pi-atelier):
+#   sudo cp idraw-serial.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now idraw-serial
+#
+# Thanks to socat's `fork`, /dev/ttyACM0 is only held open while a client
+# (Inkscape) is actually connected -- so the Flask web UI can still use the
+# plotter whenever Inkscape is not connected.
+
+[Unit]
+Description=iDraw serial-over-Tailscale bridge (socat)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+# bind=100.92.241.24 -> Tailscale IP only, so the port is not exposed on the LAN.
+# If the Pi's Tailscale IP changes, update it here.
+ExecStart=/usr/bin/socat TCP-LISTEN:4000,bind=100.92.241.24,reuseaddr,fork /dev/ttyACM0,raw,b115200,echo=0
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

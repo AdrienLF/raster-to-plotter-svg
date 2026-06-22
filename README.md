@@ -63,6 +63,41 @@ dot_radius_px = (pen_tip_mm / output_width_mm) * image_width_px / 2
 
 The exported file uses `mm` units and a `viewBox` matching the requested physical dimensions. Every dot is a `<circle>` element with `fill="black"`. Load the file directly into Inkscape, LightBurn, or your plotter's control software and set the pen stroke to match.
 
+## Wireless plotting from Inkscape
+
+The iDraw H A3 lives on the Raspberry Pi (`pi-atelier`, USB `/dev/ttyACM0`), but
+you can still drive it from **Inkscape + the UUNA TEK extension on the Mac**
+wirelessly. A `socat` bridge over Tailscale gives the Mac a virtual serial port
+(`~/.idraw-tty`) that is really the Pi's USB port, and a small patch lets the
+extension accept that virtual port.
+
+Full one-time setup (Pi service, Mac LaunchAgent, extension patch) is in
+[`bridge/README.md`](bridge/README.md). Once that's done, day-to-day connecting is:
+
+1. **Make sure the bridge is up** (it auto-starts at login):
+   ```sh
+   launchctl list | grep idraw     # second column 0 = running
+   ls -l ~/.idraw-tty              # the virtual serial port exists
+   ```
+   If it isn't running: `launchctl load ~/Library/LaunchAgents/com.idraw.bridge.plist`
+2. **In Inkscape**, open the UUNA TEK / iDraw extension → **Setup** tab.
+3. Set the connection to **"use a specified port"** (not "first available") and
+   enter the port:
+   ```
+   /Users/adrien/.idraw-tty
+   ```
+4. Run **Apply / Plot** as usual. Homing, jogging and plotting all work exactly as
+   over USB.
+
+Notes:
+- The plotter must be powered on and connected to the Pi, and Tailscale must be up
+  on both machines.
+- While the bridge is running it holds the Pi's serial port, so the Flask web UI
+  (`web/`) can't be used at the same time — stop the bridge to switch (see
+  `bridge/README.md`).
+- If Inkscape says **"Failed to connect to iDraw2 …"** after an extension update,
+  re-apply the patch: `python3 bridge/patch-idraw-extension.py`.
+
 ## Project layout
 
 ```
@@ -71,4 +106,6 @@ stipple.py     grid_halftone() and random_stipple() — return (x, y, radius) li
 svg_export.py  export_svg() — scales pixel coordinates to mm and writes the SVG
 pyproject.toml uv project manifest
 uv.lock        locked dependency tree
+web/           Flask web UI for plotting directly from the Pi
+bridge/        wireless serial bridge: drive the plotter from Mac Inkscape (see bridge/README.md)
 ```

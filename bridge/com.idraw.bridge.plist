@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for the iDraw wireless bridge.
+
+  Install:
+    cp bridge/com.idraw.bridge.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.idraw.bridge.plist
+
+  It calls the socat binary directly (not idraw-bridge.sh), because macOS blocks
+  launchd from executing scripts inside ~/Documents (a TCC-protected folder).
+  Creates the virtual serial port at /Users/adrien/.idraw-tty and tunnels it to
+  the Pi (100.92.241.24:4000) over Tailscale.
+
+  RunAtLoad starts it at login; KeepAlive restarts socat if the Tailscale link
+  drops or the Pi reboots. Adjust the socat path if Homebrew is not in
+  /opt/homebrew (Apple Silicon).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.idraw.bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/socat</string>
+        <string>-d</string>
+        <string>-d</string>
+        <string>pty,raw,echo=0,link=/Users/adrien/.idraw-tty</string>
+        <string>tcp:100.92.241.24:4000,nodelay,keepalive</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/idraw-bridge.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/idraw-bridge.log</string>
+</dict>
+</plist>
