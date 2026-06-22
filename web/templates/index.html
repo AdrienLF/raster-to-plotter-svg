@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plotter Control</title>
+<style>
+  :root {
+    --bg:       #1a1a1a;
+    --panel:    #242424;
+    --border:   #333;
+    --accent:   #4f8ef7;
+    --danger:   #e05252;
+    --success:  #4caf80;
+    --text:     #ddd;
+    --muted:    #888;
+    --tab-h:    42px;
+    --sidebar:  220px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text);
+         display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ── Header ── */
+  header { display: flex; align-items: center; gap: 12px; padding: 0 16px;
+           height: 48px; background: var(--panel); border-bottom: 1px solid var(--border);
+           flex-shrink: 0; }
+  header h1 { font-size: 15px; font-weight: 600; }
+  #status-badge { margin-left: auto; padding: 3px 10px; border-radius: 12px;
+                  font-size: 11px; font-weight: 600; background: var(--border); }
+  #status-badge.idle     { background: #333; color: var(--muted); }
+  #status-badge.homing   { background: #5a4a00; color: #ffd; }
+  #status-badge.parsing  { background: #2a2a4a; color: #aaf; }
+  #status-badge.plotting { background: #1a3a1a; color: #8f8; }
+  #status-badge.done     { background: #1a3a1a; color: var(--success); }
+  #status-badge.error    { background: #3a1a1a; color: var(--danger); }
+  #status-badge.stopped  { background: #333; color: var(--muted); }
+
+  /* ── Layout ── */
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: var(--sidebar); background: var(--panel); border-right: 1px solid var(--border);
+             display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+  .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Tabs ── */
+  .tab-btn { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+             cursor: pointer; border: none; background: none; color: var(--muted);
+             font-size: 13px; width: 100%; text-align: left; transition: .15s;
+             border-left: 3px solid transparent; }
+  .tab-btn:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-left-color: var(--accent);
+                    background: rgba(79,142,247,.07); }
+  .tab-sep { height: 1px; background: var(--border); margin: 6px 0; }
+  .sidebar-label { padding: 10px 16px 4px; font-size: 10px; font-weight: 600;
+                   text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+
+  /* ── Tab panels ── */
+  .tab-panel { display: none; flex: 1; overflow-y: auto; padding: 20px; }
+  .tab-panel.active { display: block; }
+
+  /* ── File drop zone ── */
+  #dropzone { border: 2px dashed var(--border); border-radius: 10px; padding: 40px 20px;
+              text-align: center; cursor: pointer; transition: .2s; color: var(--muted); }
+  #dropzone:hover, #dropzone.drag { border-color: var(--accent); color: var(--accent); }
+  #dropzone svg { display: block; margin: 0 auto 12px; opacity: .5; }
+  #file-name { margin-top: 8px; font-size: 12px; color: var(--accent); }
+
+  /* ── Page preview ── */
+  #placement-toolbar { margin-top: 12px; display: none; }
+  #preview-wrap { margin-top: 8px; display: none; }
+  #page-outer { background: #111; border-radius: 8px; padding: 12px;
+                display: flex; justify-content: center; }
+  #page-svg { display: block; width: 100%;
+              max-width: calc(70vh * 297 / 420); height: auto;
+              filter: drop-shadow(0 2px 12px rgba(0,0,0,.6));
+              cursor: default; user-select: none; }
+
+  /* ── Settings form ── */
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--muted);
+                 margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em; }
+  .field input[type=number], .field input[type=text], .field select {
+    width: 100%; padding: 7px 10px; background: #2d2d2d; border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 13px; }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .checkbox-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: .06em; color: var(--muted); margin: 18px 0 10px;
+                   padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .section-title:first-child { margin-top: 0; }
+
+  /* ── Buttons ── */
+  .btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px;
+         font-weight: 600; cursor: pointer; transition: .15s; }
+  .btn-primary   { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #3a7be8; }
+  .btn-danger    { background: var(--danger); color: #fff; }
+  .btn-danger:hover { background: #c84040; }
+  .btn-neutral   { background: #333; color: var(--text); }
+  .btn-neutral:hover { background: #3d3d3d; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── Bottom bar ── */
+  #bottom-bar { flex-shrink: 0; background: var(--panel); border-top: 1px solid var(--border);
+                padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+  #progress-wrap { flex: 1; }
+  #progress-bar-bg { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  #progress-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 3px;
+                  transition: width .3s; }
+  #progress-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Log ── */
+  #log-wrap { flex-shrink: 0; border-top: 1px solid var(--border); }
+  #log-toggle { display: flex; align-items: center; gap: 6px; padding: 6px 16px;
+                background: var(--panel); cursor: pointer; font-size: 11px; color: var(--muted);
+                user-select: none; }
+  #log-toggle:hover { color: var(--text); }
+  #log { height: 100px; overflow-y: auto; background: #111; padding: 8px 12px;
+         font: 11px/1.6 monospace; color: #aaa; display: none; }
+  #log.open { display: block; }
+  #log .err { color: var(--danger); }
+  #log .ok  { color: var(--success); }
+
+  /* ── Manual control grid ── */
+  .dpad { display: grid; grid-template-columns: repeat(3, 44px);
+          grid-template-rows: repeat(3, 44px); gap: 4px; margin: 12px 0; }
+  .dpad .btn { padding: 0; display: flex; align-items: center; justify-content: center;
+               font-size: 16px; }
+  .dpad .empty { pointer-events: none; }
+  #walk-dist { width: 70px; padding: 6px; background: #2d2d2d; border: 1px solid var(--border);
+               border-radius: 6px; color: var(--text); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+    <path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>
+  </svg>
+  <h1>Plotter Control</h1>
+  <span id="status-badge" class="idle">Idle</span>
+</header>
+
+<div class="main">
+  <nav class="sidebar">
+    <div class="sidebar-label">Plot</div>
+    <button class="tab-btn active" data-tab="plot">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      File
+    </button>
+
+    <div class="tab-sep"></div>
+    <div class="sidebar-label">Settings</div>
+
+    <button class="tab-btn" data-tab="setup">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+      Setup
+    </button>
+    <button class="tab-btn" data-tab="speed">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Speed
+    </button>
+    <button class="tab-btn" data-tab="timing">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Pen Timing
+    </button>
+    <button class="tab-btn" data-tab="advanced">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      Advanced
+    </button>
+
+    <div class="tab-sep"></div>
+    <div class="sidebar-label">Control</div>
+
+    <button class="tab-btn" data-tab="manual">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+      Manual
+    </button>
+  </nav>
+
+  <div class="content">
+    <!-- ── Plot tab ── -->
+    <div id="tab-plot" class="tab-panel active">
+      <div id="dropzone" onclick="document.getElementById('file-input').click()">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
+          <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
+        </svg>
+        <div>Drop SVG here or click to browse</div>
+        <div id="file-name"></div>
+      </div>
+      <input type="file" id="file-input" accept=".svg" style="display:none">
+
+      <!-- placement toolbar (shown after SVG load) -->
+      <div id="placement-toolbar">
+        <div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap;">
+          <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:4px;">Align</span>
+          <button class="btn btn-neutral btn-sm" onclick="alignSVG('left')" title="Align left edge">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="2" height="12" fill="currentColor"/><rect x="4" y="4" width="7" height="6" fill="currentColor" opacity="0.55"/></svg>
+          </button>
+          <button class="btn btn-neutral btn-sm" onclick="alignSVG('center-h')" title="Center horizontally">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="6.5" y="1" width="1" height="12" fill="currentColor"/><rect x="3.5" y="4" width="7" height="6" fill="currentColor" opacity="0.55"/></svg>
+          </button>
+          <button class="btn btn-neutral btn-sm" onclick="alignSVG('right')" title="Align right edge">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="11" y="1" width="2" height="12" fill="currentColor"/><rect x="3" y="4" width="7" height="6" fill="currentColor" opacity="0.55"/></svg>
+          </button>
+          <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
+          <button class="btn btn-neutral btn-sm" onclick="alignSVG('top')" title="Align top edge">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="2" fill="currentColor"/><rect x="4" y="4" width="6" height="7" fill="currentColor" opacity="0.55"/></svg>
+          </button>
+          <button class="btn btn-neutral btn-sm" onclick="alignSVG('center-v')" title="Center vertically">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="6.5" width="12" height="1" fill="currentColor"/><rect x="4" y="3.5" width="6" height="7" fill="currentColor" opacity="0.55"/></svg>
+          </button>
+          <button class="btn btn-neutral btn-sm" onclick="alignSVG('bottom')" title="Align bottom edge">
+            <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="11" width="12" height="2" fill="currentColor"/><rect x="4" y="3" width="6" height="7" fill="currentColor" opacity="0.55"/></svg>
+          </button>
+          <div style="flex:1"></div>
+          <span id="placement-pos" style="font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums">x 0.0 · y 0.0 mm</span>
+        </div>
+      </div>
+
+      <div id="preview-wrap">
+        <div id="page-outer">
+          <svg id="page-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 297 420">
+            <!-- A3 page -->
+            <rect width="297" height="420" fill="white"/>
+            <!-- A4 guide from top-left -->
+            <rect x="0" y="0" width="210" height="297"
+                  fill="none" stroke="#4f8ef7" stroke-width="0.8"
+                  stroke-dasharray="4 3" opacity="0.55"/>
+            <text x="207" y="293" text-anchor="end" font-size="5.5"
+                  fill="#4f8ef7" opacity="0.55" font-family="system-ui,sans-serif">A4</text>
+            <!-- snap guides (shown during drag) -->
+            <line id="sg-v" display="none" x1="0" y1="0" x2="0" y2="420"
+                  stroke="#e8b84b" stroke-width="0.6" pointer-events="none"/>
+            <line id="sg-h" display="none" x1="0" y1="0" x2="297" y2="0"
+                  stroke="#e8b84b" stroke-width="0.6" pointer-events="none"/>
+            <!-- placement wrapper — translate changes when user drags/aligns -->
+            <g id="placement-g" transform="translate(0,0)">
+              <g id="preview-content"></g>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Setup tab ── -->
+    <div id="tab-setup" class="tab-panel">
+      <div class="section-title">Pen Heights</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Pen UP height (mm)</label>
+          <input type="number" id="s-pen_pos_up" min="0.1" max="7" step="0.1" value="{{ cfg.pen_pos_up }}">
+        </div>
+        <div class="field">
+          <label>Pen DOWN height (mm)</label>
+          <input type="number" id="s-pen_pos_down" min="0.5" max="10" step="0.1" value="{{ cfg.pen_pos_down }}" placeholder="2.0">
+        </div>
+      </div>
+      <div class="section-title">Paper</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Width (mm)</label>
+          <input type="number" id="s-paper_width" min="50" max="1200" step="1" value="{{ cfg.paper_width }}">
+        </div>
+        <div class="field">
+          <label>Height (mm)</label>
+          <input type="number" id="s-paper_height" min="50" max="1200" step="1" value="{{ cfg.paper_height }}">
+        </div>
+      </div>
+      <div class="section-title">Port</div>
+      <div class="field">
+        <label>Serial port</label>
+        <input type="text" id="s-port" value="{{ cfg.port }}">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save settings</button>
+    </div>
+
+    <!-- ── Speed tab ── -->
+    <div id="tab-speed" class="tab-panel">
+      <div class="section-title">Movement Speeds</div>
+      <div class="field">
+        <label>Drawing speed (mm/min)</label>
+        <input type="number" id="s-speed_pendown" min="50" max="25000" step="50" value="{{ cfg.speed_pendown }}">
+      </div>
+      <div class="field">
+        <label>Pen-up travel speed (mm/min)</label>
+        <input type="number" id="s-speed_penup" min="50" max="25000" step="50" value="{{ cfg.speed_penup }}">
+      </div>
+      <div class="section-title">Copies</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Number of copies</label>
+          <input type="number" id="s-copies" min="1" max="9999" step="1" value="{{ cfg.copies }}">
+        </div>
+        <div class="field">
+          <label>Delay between copies (s)</label>
+          <input type="number" id="s-page_delay" min="0" max="3600" step="1" value="{{ cfg.page_delay }}">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save settings</button>
+    </div>
+
+    <!-- ── Pen Timing tab ── -->
+    <div id="tab-timing" class="tab-panel">
+      <div class="section-title">Pen Raise / Lower Speed</div>
+      <div class="field">
+        <label>Pen raising speed (mm/min)</label>
+        <input type="number" id="s-pen_rate_raise" min="100" max="25000" step="100" value="{{ cfg.pen_rate_raise }}">
+      </div>
+      <div class="field">
+        <label>Pen lowering speed (mm/min)</label>
+        <input type="number" id="s-pen_rate_lower" min="100" max="25000" step="100" value="{{ cfg.pen_rate_lower }}">
+      </div>
+      <div class="section-title">Optional Delays</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Delay after raising pen (ms)</label>
+          <input type="number" id="s-pen_delay_up" min="0" max="2000" step="10" value="{{ cfg.pen_delay_up }}">
+        </div>
+        <div class="field">
+          <label>Delay after lowering pen (ms)</label>
+          <input type="number" id="s-pen_delay_down" min="0" max="2000" step="10" value="{{ cfg.pen_delay_down }}">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save settings</button>
+    </div>
+
+    <!-- ── Advanced tab ── -->
+    <div id="tab-advanced" class="tab-panel">
+      <div class="section-title">Path Optimisation</div>
+      <div class="field">
+        <label>Reordering</label>
+        <select id="s-reordering">
+          <option value="0" {% if cfg.reordering==0 %}selected{% endif %}>None — preserve file order</option>
+          <option value="1" {% if cfg.reordering==1 %}selected{% endif %}>Nearest neighbour (faster plotting)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Curve step (mm) — smaller = smoother</label>
+        <input type="number" id="s-curve_step_mm" min="0.1" max="5" step="0.1" value="{{ cfg.curve_step_mm }}">
+      </div>
+      <div class="section-title">Layout</div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="s-auto_rotate" {% if cfg.auto_rotate %}checked{% endif %}>
+        <label for="s-auto_rotate">Auto-rotate SVG to match paper orientation</label>
+      </div>
+      <button class="btn btn-primary btn-sm" style="margin-top:16px" onclick="saveSettings()">Save settings</button>
+    </div>
+
+    <!-- ── Manual tab ── -->
+    <div id="tab-manual" class="tab-panel">
+      <div class="section-title">Jog</div>
+      <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+        <div>
+          <div class="dpad">
+            <div class="empty"></div>
+            <button class="btn btn-neutral" onclick="walk(0,-1)" title="Up">↑</button>
+            <div class="empty"></div>
+            <button class="btn btn-neutral" onclick="walk(-1,0)" title="Left">←</button>
+            <div class="empty"></div>
+            <button class="btn btn-neutral" onclick="walk(1,0)"  title="Right">→</button>
+            <div class="empty"></div>
+            <button class="btn btn-neutral" onclick="walk(0,1)"  title="Down">↓</button>
+            <div class="empty"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <span style="font-size:12px;color:var(--muted)">Step:</span>
+            <input id="walk-dist" type="number" value="10" min="0.1" max="200" step="1">
+            <span style="font-size:12px;color:var(--muted)">mm</span>
+          </div>
+        </div>
+        <div>
+          <p style="font-size:11px;color:var(--muted);margin-bottom:6px">↑ = toward top of paper<br>↓ = toward bottom of paper</p>
+        </div>
+      </div>
+
+      <div class="section-title">Pen</div>
+      <div class="btn-group">
+        <button class="btn btn-neutral btn-sm" onclick="manual('pen_up')">Pen Up</button>
+        <button class="btn btn-neutral btn-sm" onclick="manual('pen_down')">Pen Down</button>
+        <button class="btn btn-neutral btn-sm" onclick="manual('cycle_pen')">Cycle (down → up)</button>
+      </div>
+
+      <div class="section-title">Machine</div>
+      <div class="btn-group">
+        <button class="btn btn-neutral btn-sm" onclick="manual('home')">⌂ Home</button>
+        <button class="btn btn-neutral btn-sm" onclick="manual('motors_off')">Motors off</button>
+        <button class="btn btn-neutral btn-sm" onclick="getStatus()">Query status</button>
+      </div>
+      <pre id="status-out" style="margin-top:10px;font:11px monospace;color:var(--muted);min-height:20px"></pre>
+    </div>
+  </div><!-- .content -->
+</div><!-- .main -->
+
+<!-- ── Bottom bar ── -->
+<div id="bottom-bar">
+  <button id="btn-plot" class="btn btn-primary" onclick="startPlot()">▶ Plot</button>
+  <button id="btn-stop" class="btn btn-danger" onclick="stopPlot()" disabled>■ Stop</button>
+  <button class="btn btn-neutral" onclick="manual('home')">⌂ Home</button>
+  <div id="progress-wrap">
+    <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+    <div id="progress-label">No file loaded</div>
+  </div>
+</div>
+
+<!-- ── Log ── -->
+<div id="log-wrap">
+  <div id="log-toggle" onclick="toggleLog()">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>Log</span>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script>
+const cfg = {{ cfg | tojson }};
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── File upload / drag-drop ────────────────────────────────────────────────
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) uploadFile(f);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); });
+
+function uploadFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fetch('/api/upload', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { alert(d.error); return; }
+      document.getElementById('file-name').textContent = d.name;
+      buildPreview(d.svg);
+      document.getElementById('progress-label').textContent = `Loaded: ${d.name}`;
+      document.getElementById('btn-plot').disabled = false;
+    });
+}
+
+// ── Placement ──────────────────────────────────────────────────────────────
+const PW = cfg.paper_width;
+const PH = cfg.paper_height;
+const SNAP_X = [0, PW/3, PW/2, 2*PW/3, PW];
+const SNAP_Y = [0, PH/3, PH/2, 2*PH/3, PH];
+const SNAP_THRESHOLD = 4;  // mm
+const pageSvg = document.getElementById('page-svg');
+
+let placement = {x: 0, y: 0};
+let svgW_mm = 0, svgH_mm = 0;
+let dragging = false, dragOriginMM = null, placementOrigin = null;
+
+function clientToMM(e) {
+  const r = pageSvg.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * (PW / r.width),
+    y: (e.clientY - r.top)  * (PH / r.height)
+  };
+}
+
+function snapAxis(pos, size, snapPts) {
+  const checks = [pos, pos + size / 2, pos + size];
+  let bestD = SNAP_THRESHOLD, snapLine = null, snapped = pos;
+  for (const s of snapPts) {
+    for (let i = 0; i < 3; i++) {
+      const d = Math.abs(checks[i] - s);
+      if (d < bestD) { bestD = d; snapLine = s; snapped = pos + (s - checks[i]); }
+    }
+  }
+  return {snapped, snapLine};
+}
+
+function updateSnapGuides(snapX, snapY) {
+  const gv = document.getElementById('sg-v');
+  const gh = document.getElementById('sg-h');
+  if (snapX !== null) { gv.setAttribute('x1', snapX); gv.setAttribute('x2', snapX); gv.removeAttribute('display'); }
+  else { gv.setAttribute('display', 'none'); }
+  if (snapY !== null) { gh.setAttribute('y1', snapY); gh.setAttribute('y2', snapY); gh.removeAttribute('display'); }
+  else { gh.setAttribute('display', 'none'); }
+}
+
+function applyPlacement(x, y, snap) {
+  let snapX = null, snapY = null;
+  if (snap && svgW_mm) {
+    const rx = snapAxis(x, svgW_mm, SNAP_X);
+    const ry = snapAxis(y, svgH_mm, SNAP_Y);
+    x = rx.snapped; snapX = rx.snapLine;
+    y = ry.snapped; snapY = ry.snapLine;
+  }
+  placement = {x, y};
+  document.getElementById('placement-g').setAttribute('transform', `translate(${x},${y})`);
+  document.getElementById('placement-pos').textContent = `x ${x.toFixed(1)} · y ${y.toFixed(1)} mm`;
+  updateSnapGuides(snapX, snapY);
+}
+
+function sendPlacement() {
+  fetch('/api/placement', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(placement)
+  });
+}
+
+function alignSVG(type) {
+  if (!svgW_mm) return;
+  let {x, y} = placement;
+  if (type === 'left')     x = 0;
+  if (type === 'center-h') x = (PW - svgW_mm) / 2;
+  if (type === 'right')    x = PW - svgW_mm;
+  if (type === 'top')      y = 0;
+  if (type === 'center-v') y = (PH - svgH_mm) / 2;
+  if (type === 'bottom')   y = PH - svgH_mm;
+  applyPlacement(x, y, false);
+  sendPlacement();
+}
+
+pageSvg.addEventListener('mousedown', e => {
+  if (!svgW_mm) return;
+  e.preventDefault();
+  dragging = true;
+  dragOriginMM = clientToMM(e);
+  placementOrigin = {...placement};
+  pageSvg.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const mm = clientToMM(e);
+  applyPlacement(placementOrigin.x + mm.x - dragOriginMM.x,
+                 placementOrigin.y + mm.y - dragOriginMM.y, true);
+});
+window.addEventListener('mouseup', () => {
+  if (!dragging) return;
+  dragging = false;
+  updateSnapGuides(null, null);
+  pageSvg.style.cursor = svgW_mm ? 'grab' : 'default';
+  sendPlacement();
+});
+
+// ── Page preview ───────────────────────────────────────────────────────────
+function toMM(val, fallback) {
+  if (val == null) return fallback;
+  const s = String(val).trim();
+  const units = { mm: 1, cm: 10, in: 25.4, px: 25.4 / 96, pt: 25.4 / 72, pc: 25.4 / 6 };
+  for (const [u, f] of Object.entries(units)) {
+    if (s.endsWith(u)) return parseFloat(s) * f;
+  }
+  return parseFloat(s) * (25.4 / 96);
+}
+
+function buildPreview(svgString) {
+  const doc = new DOMParser().parseFromString(svgString, 'image/svg+xml');
+  const el  = doc.querySelector('svg');
+  if (!el) return;
+
+  const w_mm = toMM(el.getAttribute('width'),  297);
+  const h_mm = toMM(el.getAttribute('height'), 420);
+
+  let vx = 0, vy = 0, vw, vh;
+  const vb = el.getAttribute('viewBox');
+  if (vb) {
+    [vx, vy, vw, vh] = vb.trim().split(/[\s,]+/).map(Number);
+  } else {
+    vw = w_mm * (96 / 25.4);
+    vh = h_mm * (96 / 25.4);
+  }
+
+  const sx = w_mm / vw;
+  const sy = h_mm / vh;
+
+  const g = document.getElementById('preview-content');
+  g.setAttribute('transform', `matrix(${sx},0,0,${sy},${-vx * sx},${-vy * sy})`);
+  g.innerHTML = el.innerHTML;
+
+  svgW_mm = w_mm;
+  svgH_mm = h_mm;
+  applyPlacement(0, 0, false);
+
+  document.getElementById('preview-wrap').style.display = 'block';
+  document.getElementById('placement-toolbar').style.display = 'block';
+  pageSvg.style.cursor = 'grab';
+}
+
+// ── SSE stream ─────────────────────────────────────────────────────────────
+const es = new EventSource('/api/stream');
+es.onmessage = e => {
+  const d = JSON.parse(e.data);
+  if (d.t === 'ping') return;
+  if (d.t === 'state') setStatus(d.state, d);
+  if (d.t === 'progress') updateProgress(d.done, d.total);
+  if (d.t === 'log') appendLog(d.msg);
+  if (d.t === 'error') appendLog('ERROR: ' + d.msg, 'err');
+};
+
+function setStatus(state, d) {
+  const badge = document.getElementById('status-badge');
+  badge.className = state;
+  const labels = { idle: 'Idle', homing: 'Homing…', parsing: 'Parsing…', plotting: 'Plotting', done: 'Done', error: 'Error', stopped: 'Stopped' };
+  badge.textContent = labels[state] || state;
+  const plotting = state === 'plotting' || state === 'homing' || state === 'parsing';
+  document.getElementById('btn-plot').disabled = plotting;
+  document.getElementById('btn-stop').disabled = !plotting;
+  if (state === 'done' || state === 'idle' || state === 'stopped' || state === 'error') {
+    document.getElementById('btn-plot').disabled = false;
+    document.getElementById('btn-stop').disabled = true;
+  }
+}
+
+function updateProgress(done, total) {
+  const pct = total ? Math.round(done / total * 100) : 0;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  const badge = document.getElementById('status-badge');
+  const phase = badge.className === 'parsing' ? 'elements' : 'segments';
+  document.getElementById('progress-label').textContent =
+    total ? `${done} / ${total} ${phase} (${pct}%)` : `${done} ${phase}`;
+}
+
+function appendLog(msg, cls) {
+  const log = document.getElementById('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+  // Auto-open log on first message
+  if (!log.classList.contains('open')) toggleLog();
+}
+
+function toggleLog() {
+  const log = document.getElementById('log');
+  const icon = document.querySelector('#log-toggle svg');
+  log.classList.toggle('open');
+  icon.style.transform = log.classList.contains('open') ? 'rotate(90deg)' : '';
+}
+
+// ── Plot controls ──────────────────────────────────────────────────────────
+function startPlot() {
+  // Always flush current UI values to server before plotting
+  saveSettings().then(() =>
+    fetch('/api/plot', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { if (d.error) alert(d.error); })
+  );
+}
+function stopPlot() {
+  fetch('/api/stop', { method: 'POST' });
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+function saveSettings() {
+  const data = {};
+  document.querySelectorAll('[id^="s-"]').forEach(el => {
+    const key = el.id.slice(2);
+    if (el.type === 'checkbox') data[key] = el.checked;
+    else if (el.type === 'number') data[key] = parseFloat(el.value);
+    else data[key] = el.value;
+  });
+  return fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(r => r.json()).then(d => {
+    if (d.ok) appendLog('Settings saved.', 'ok');
+  });
+}
+
+// ── Manual commands ────────────────────────────────────────────────────────
+function manual(cmd, extra) {
+  fetch('/api/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd, ...extra })
+  }).then(r => r.json()).then(d => {
+    if (d.error) appendLog('Error: ' + d.error, 'err');
+    else appendLog('Manual: ' + cmd, 'ok');
+  });
+}
+
+function walk(dx, dy) {
+  const dist = parseFloat(document.getElementById('walk-dist').value) || 10;
+  fetch('/api/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: 'walk', dx: dx * dist, dy: dy * dist })
+  }).then(r => r.json()).then(d => {
+    if (d.error) appendLog('Walk error: ' + d.error, 'err');
+  });
+}
+
+function getStatus() {
+  fetch('/api/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: 'status' })
+  }).then(r => r.json()).then(d => {
+    document.getElementById('status-out').textContent = d.status || d.error || '';
+  });
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-plot').disabled = true;
+</script>
+</body>
+</html>
