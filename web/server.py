@@ -1,4 +1,4 @@
-import os, json, threading, queue, time, tempfile, re, io, zipfile, base64
+import os, json, threading, queue, time, tempfile, re, io, zipfile, math, base64, uuid, pickle, hashlib
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -20,9 +20,15 @@ app = Flask(__name__)
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 SETTINGS_PATH = Path.home() / '.plotter_settings.json'
+PLOT_JOB_PATH = Path.home() / '.plotter_resume_job.json'
+PLOT_PATHS_CACHE = Path.home() / '.plotter_paths_cache.pkl'
+PI_BRIDGE_PORT = 'socket://100.92.241.24:4000'
+LEGACY_USB_PORT = '/dev/ttyACM0'
 
 DEFAULTS = {
-    'port':            '/dev/ttyACM0',
+    # Reach the Pi-connected plotter over Tailscale via its socat bridge.
+    # Use '/dev/ttyACM0' instead when the server runs on the Pi itself.
+    'port':            PI_BRIDGE_PORT,
     'paper_width':     297.0,
     'paper_height':    420.0,
     'pen_pos_up':      0.5,
@@ -34,7 +40,7 @@ DEFAULTS = {
     'pen_delay_up':    0,
     'pen_delay_down':  0,
     'auto_rotate':     True,
-    'reordering':      1,
+    'reordering':      'nearest',
     'copies':          1,
     'page_delay':      15,
     'curve_step_mm':   0.5,
@@ -47,6 +53,8 @@ def load_cfg():
             s.update(json.loads(SETTINGS_PATH.read_text()))
         except Exception:
             pass
+    if s.get('port') == LEGACY_USB_PORT and DEFAULTS['port'] == PI_BRIDGE_PORT:
+        s['port'] = PI_BRIDGE_PORT
     return s
 
 def save_cfg(s):
@@ -58,7 +66,9 @@ cfg = load_cfg()
 
 _plot_thread = None
 _stop_event  = threading.Event()
-_events      = queue.Queue(maxsize=300)
+_subscribers = set()
+_subscribers_lock = threading.Lock()
+_last_events = {}
 _current_svg = None   # bytes
 _placement   = {'x': 0.0, 'y': 0.0}  # mm offset from page top-left
 
@@ -69,10 +79,54 @@ _process_thread = None
 _process_lock   = threading.Lock()
 
 def emit(t, **kw):
+    evt = {'t': t, **kw}
+    if t in ('proc', 'state'):
+        _last_events[t] = evt
     try:
-        _events.put_nowait({'t': t, **kw})
-    except queue.Full:
-        pass
+        with _subscribers_lock:
+            subscribers = list(_subscribers)
+    except Exception:
+        subscribers = []
+    for q in subscribers:
+        try:
+            q.put_nowait(evt)
+        except queue.Full:
+            pass
+
+def _subscribe_events():
+    q = queue.Queue(maxsize=300)
+    for key in ('proc', 'state'):
+        evt = _last_events.get(key)
+        if evt:
+            try:
+                q.put_nowait(evt)
+            except queue.Full:
+                pass
+    with _subscribers_lock:
+        _subscribers.add(q)
+    return q
+
+def _unsubscribe_events(q):
+    with _subscribers_lock:
+        _subscribers.discard(q)
+
+def _clear_events():
+    with _subscribers_lock:
+        subscribers = list(_subscribers)
+    for q in subscribers:
+        while True:
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                break
+
+def _clear_last_plot_events():
+    for key in ('state',):
+        _last_events.pop(key, None)
+
+def _clear_last_proc_events():
+    for key in ('proc',):
+        _last_events.pop(key, None)
 
 # ── SVG → polylines ───────────────────────────────────────────────────────────
 
@@ -91,6 +145,64 @@ def _parse_length(val, default_mm):
         return float(s) * (25.4 / 96)   # assume px
     except ValueError:
         return default_mm
+
+class ArcPath(list):
+    """A polyline that may carry circular-arc metadata.
+
+    It behaves exactly like a ``list`` of (x, y) points everywhere (reordering,
+    estimation, resume accounting), but when ``arc`` is set the plot worker can
+    emit a single native Grbl ``G2`` instead of dozens of ``G1`` segments. If the
+    tag is ever lost the polygon points still draw the circle correctly.
+    """
+    arc = None  # {'cx', 'cy', 'r'} in machine mm, or None
+
+    def __reduce__(self):  # preserve `arc` across the pickle paths cache
+        return (_rebuild_path, (list(self), self.arc))
+
+
+def _rebuild_path(items, arc):
+    p = ArcPath(items)
+    p.arc = arc
+    return p
+
+
+def _clone(poly):
+    arc = getattr(poly, 'arc', None)
+    if arc is None:
+        return list(poly)
+    p = ArcPath(poly)
+    p.arc = arc
+    return p
+
+
+def _rev(poly):
+    arc = getattr(poly, 'arc', None)
+    if arc is not None:
+        p = ArcPath(poly)        # a circle reversed is the same circle
+        p.arc = arc
+        return p
+    return list(reversed(poly))
+
+
+def _circle_meta(element, se, px_to_mm):
+    """Return (cx, cy, r) in machine mm for a circular Circle/Ellipse, else None."""
+    if not isinstance(element, (se.Circle, se.Ellipse)):
+        return None
+    try:
+        bb = element.bbox()
+    except Exception:
+        return None
+    if not bb:
+        return None
+    x0, y0, x1, y1 = bb
+    w_, h_ = x1 - x0, y1 - y0
+    if w_ <= 0 or h_ <= 0 or abs(w_ - h_) > 0.02 * max(w_, h_):
+        return None  # degenerate or non-circular (ellipse) -> let it flatten
+    cx = (x0 + x1) / 2 * px_to_mm
+    cy = -((y0 + y1) / 2) * px_to_mm
+    r = (w_ / 2) * px_to_mm
+    return cx, cy, r
+
 
 def svg_to_polylines(svg_bytes, settings, on_progress=None):
     """
@@ -126,6 +238,21 @@ def svg_to_polylines(svg_bytes, settings, on_progress=None):
             on_progress(idx, total_el)
         if _stop_event.is_set():
             break
+
+        # True circles become a single native G2 arc at plot time. Keep a polygon
+        # of points for travel ordering / estimation / resume accounting, and tag
+        # it with the arc so the draw loop can replace the segments with one G2.
+        circ = _circle_meta(element, se, PX_TO_MM)
+        if circ is not None:
+            cx, cy, r = circ
+            m = min(48, max(12, int(2 * math.pi * r / max(1e-6, step_px * PX_TO_MM))))
+            pts = [(cx + r * math.cos(2 * math.pi * i / m),
+                    cy + r * math.sin(2 * math.pi * i / m)) for i in range(m + 1)]
+            ring = ArcPath(pts)
+            ring.arc = {'cx': cx, 'cy': cy, 'r': r}
+            polylines.append(ring)
+            continue
+
         try:
             segs = list(element.segments())
         except Exception:
@@ -200,15 +327,55 @@ def svg_to_polylines(svg_bytes, settings, on_progress=None):
     if on_progress:
         on_progress(total_el, total_el)
 
-    if settings.get('reordering', 0) >= 1:
-        polylines = _reorder(polylines)
+    reordering = _reordering_mode(settings)
+    if reordering != 'none':
+        polylines = _reorder(polylines, reordering)
 
     return polylines
 
-def _reorder(polylines):
-    """Greedy nearest-neighbour reorder to minimise pen-up travel."""
+def _reordering_mode(settings):
+    """Normalize legacy numeric and current named reordering settings."""
+    raw = (settings or {}).get('reordering', DEFAULTS['reordering'])
+    if isinstance(raw, bool):
+        return 'nearest' if raw else 'none'
+    if isinstance(raw, (int, float)):
+        return {0: 'none', 1: 'nearest', 2: 'nearest_reversible', 3: 'two_opt'}.get(int(raw), 'nearest')
+    key = str(raw).strip().lower().replace('-', '_').replace(' ', '_')
+    aliases = {
+        '0': 'none',
+        'off': 'none',
+        'false': 'none',
+        'preserve': 'none',
+        '1': 'nearest',
+        'nearest_neighbor': 'nearest',
+        'nearest_neighbour': 'nearest',
+        'nearest': 'nearest',
+        '2': 'nearest_reversible',
+        'nearest_reverse': 'nearest_reversible',
+        'nearest_reversible': 'nearest_reversible',
+        'reversible': 'nearest_reversible',
+        '3': 'two_opt',
+        '2opt': 'two_opt',
+        '2_opt': 'two_opt',
+        'twoopt': 'two_opt',
+        'two_opt': 'two_opt',
+    }
+    return aliases.get(key, 'nearest')
+
+def _reorder(polylines, mode='nearest'):
+    """Reorder paths to reduce pen-up travel."""
     if not polylines:
         return polylines
+    mode = _reordering_mode({'reordering': mode})
+    if mode == 'none':
+        return [_clone(poly) for poly in polylines]
+    if mode == 'nearest_reversible':
+        return _reorder_nearest_reversible(polylines)
+    if mode == 'two_opt':
+        return _reorder_two_opt(polylines)
+    return _reorder_nearest(polylines)
+
+def _reorder_nearest(polylines):
     ordered = [polylines[0]]
     remaining = polylines[1:]
     while remaining:
@@ -218,17 +385,347 @@ def _reorder(polylines):
         ordered.append(remaining.pop(best_i))
     return ordered
 
+def _reorder_nearest_reversible(polylines):
+    remaining = [_clone(poly) for poly in polylines]
+    ordered = []
+    pos = (0.0, 0.0)
+    while remaining:
+        best = None
+        for i, poly in enumerate(remaining):
+            start_d = _dist2(pos, poly[0])
+            end_d = _dist2(pos, poly[-1])
+            candidate = (min(start_d, end_d), i, end_d < start_d)
+            if best is None or candidate < best:
+                best = candidate
+        _, idx, reverse = best
+        poly = remaining.pop(idx)
+        if reverse:
+            poly = _rev(poly)
+        ordered.append(poly)
+        pos = poly[-1]
+    return ordered
+
+def _reorder_two_opt(polylines):
+    ordered = _reorder_nearest_reversible(polylines)
+    n = len(ordered)
+    if n < 3:
+        return ordered
+
+    # A 2-opt pass over open paths. Reversing a route slice also reverses each
+    # path so the pen-down drawing direction remains continuous through the slice.
+    max_passes = 2
+    window = n if n <= 400 else 250
+    origin = (0.0, 0.0)
+    for _ in range(max_passes):
+        improved = False
+        for i in range(n - 1):
+            before = origin if i == 0 else ordered[i - 1][-1]
+            start_i = ordered[i][0]
+            limit = min(n, i + window + 1)
+            for k in range(i + 1, limit):
+                after = origin if k == n - 1 else ordered[k + 1][0]
+                old = _dist2(before, start_i) + _dist2(ordered[k][-1], after)
+                new = _dist2(before, ordered[k][-1]) + _dist2(start_i, after)
+                if new + 1e-9 < old:
+                    ordered[i:k + 1] = [_rev(poly) for poly in reversed(ordered[i:k + 1])]
+                    improved = True
+                    break
+            if improved:
+                break
+        if not improved:
+            break
+    return ordered
+
 def _dist2(a, b):
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
+def _dist(a, b):
+    return math.sqrt(_dist2(a, b))
+
+def _placed_polylines(svg_bytes, settings, on_progress=None, placement=None):
+    polylines = svg_to_polylines(svg_bytes, settings, on_progress=on_progress)
+    place = _placement if placement is None else placement
+    ox, oy = place.get('x', 0.0), place.get('y', 0.0)
+    if ox or oy:
+        polylines = [_shift_poly(poly, ox, oy) for poly in polylines]
+    return polylines
+
+def _shift_poly(poly, ox, oy):
+    pts = [(x + ox, y - oy) for x, y in poly]
+    arc = getattr(poly, 'arc', None)
+    if arc is None:
+        return pts
+    shifted = ArcPath(pts)
+    shifted.arc = {'cx': arc['cx'] + ox, 'cy': arc['cy'] - oy, 'r': arc['r']}
+    return shifted
+
+# ── Parsed-paths cache ───────────────────────────────────────────────────────
+# svg_to_polylines (curve flattening) + reordering (nearest / two-opt) is the
+# slow part of a plot. Cache the final placed polylines keyed by everything that
+# affects them, so resuming or re-plotting the same drawing skips re-parsing.
+
+def _paths_signature(svg_bytes, settings, placement):
+    meta = {
+        'curve_step_mm': float((settings or {}).get('curve_step_mm', 0.5) or 0.5),
+        'reordering': _reordering_mode(settings),
+        'px': round(float((placement or {}).get('x', 0.0)), 4),
+        'py': round(float((placement or {}).get('y', 0.0)), 4),
+    }
+    h = hashlib.sha256()
+    h.update(svg_bytes)
+    h.update(json.dumps(meta, sort_keys=True).encode())
+    return h.hexdigest()
+
+def _load_cached_polylines(sig):
+    try:
+        with open(PLOT_PATHS_CACHE, 'rb') as f:
+            data = pickle.load(f)
+        if data.get('sig') == sig:
+            return data.get('polylines')
+    except Exception:
+        return None
+    return None
+
+def _save_cached_polylines(sig, polylines):
+    try:
+        tmp = PLOT_PATHS_CACHE.with_suffix('.tmp')
+        with open(tmp, 'wb') as f:
+            pickle.dump({'sig': sig, 'polylines': polylines}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp.replace(PLOT_PATHS_CACHE)
+    except Exception:
+        pass
+
+def _resolve_polylines(svg_bytes, settings, placement, on_progress=None):
+    """Parse the SVG to placed polylines, or reuse the cache when the drawing,
+    curve resolution, reordering and placement are unchanged."""
+    sig = _paths_signature(svg_bytes, settings, placement)
+    cached = _load_cached_polylines(sig)
+    if cached is not None:
+        emit('log', msg=f'Reusing cached paths ({len(cached)}) — skipped re-parsing.')
+        if on_progress:
+            on_progress(1, 1)
+        return cached
+    polylines = _placed_polylines(svg_bytes, settings, on_progress=on_progress,
+                                  placement=placement)
+    _save_cached_polylines(sig, polylines)
+    return polylines
+
+def _polyline_distance(poly):
+    return sum(_dist(poly[i - 1], poly[i]) for i in range(1, len(poly)))
+
+def _seconds_for_distance(distance_mm, speed_mm_min):
+    speed = float(speed_mm_min or 0)
+    if speed <= 0:
+        return 0.0
+    return float(distance_mm) / speed * 60.0
+
+def _estimate_polylines(polylines, settings):
+    copies = max(1, int(settings.get('copies', 1) or 1))
+    page_delay = max(0.0, float(settings.get('page_delay', 0) or 0))
+    path_count = len(polylines)
+    segments = sum(max(0, len(poly) - 1) for poly in polylines)
+
+    draw_distance = 0.0
+    travel_distance = 0.0
+    pos = (0.0, 0.0)
+    for _copy_i in range(copies):
+        for poly in polylines:
+            if len(poly) < 2:
+                continue
+            travel_distance += _dist(pos, poly[0])
+            draw_distance += _polyline_distance(poly)
+            pos = poly[-1]
+    if path_count:
+        travel_distance += _dist(pos, (0.0, 0.0))
+
+    pen_cycles = path_count * copies
+    z_delta = abs(float(settings.get('pen_pos_down', 0)) -
+                  float(settings.get('pen_pos_up', 0)))
+    pen_move_seconds = pen_cycles * (
+        _seconds_for_distance(z_delta, settings.get('pen_rate_lower', 0)) +
+        _seconds_for_distance(z_delta, settings.get('pen_rate_raise', 0))
+    )
+    pen_delay_seconds = pen_cycles * (
+        float(settings.get('pen_delay_down', 0) or 0) +
+        float(settings.get('pen_delay_up', 0) or 0)
+    ) / 1000.0
+    pen_seconds = pen_move_seconds + pen_delay_seconds
+    draw_seconds = _seconds_for_distance(draw_distance, settings.get('speed_pendown', 0))
+    travel_seconds = _seconds_for_distance(travel_distance, settings.get('speed_penup', 0))
+    copy_delay_seconds = max(0, copies - 1) * page_delay
+    estimated_seconds = draw_seconds + travel_seconds + pen_seconds + copy_delay_seconds
+
+    return {
+        'paths': path_count,
+        'segments': segments,
+        'copies': copies,
+        'total_segments': segments * copies,
+        'draw_distance_mm': round(draw_distance, 3),
+        'travel_distance_mm': round(travel_distance, 3),
+        'total_distance_mm': round(draw_distance + travel_distance, 3),
+        'pen_cycles': pen_cycles,
+        'estimated_seconds': round(estimated_seconds, 3),
+        'breakdown': {
+            'draw_seconds': round(draw_seconds, 3),
+            'travel_seconds': round(travel_seconds, 3),
+            'pen_seconds': round(pen_seconds, 3),
+            'pen_move_seconds': round(pen_move_seconds, 3),
+            'pen_delay_seconds': round(pen_delay_seconds, 3),
+            'copy_delay_seconds': round(copy_delay_seconds, 3),
+        },
+    }
+
+def _plot_progress_payload(done_segments, total_segments, done_shapes, total_shapes,
+                           started_at, now=None, estimated_seconds=None):
+    now = time.time() if now is None else now
+    elapsed = max(0.0, float(now) - float(started_at))
+    total_segments = max(0, int(total_segments or 0))
+    done_segments = min(total_segments, max(0, int(done_segments or 0)))
+    total_shapes = max(0, int(total_shapes or 0))
+    done_shapes = min(total_shapes, max(0, int(done_shapes or 0)))
+    fraction = (done_segments / total_segments) if total_segments else 0.0
+
+    remaining = None
+    if total_segments:
+        if done_segments > 0:
+            remaining = elapsed * (total_segments - done_segments) / done_segments
+        elif estimated_seconds is not None:
+            remaining = max(0.0, float(estimated_seconds) - elapsed)
+
+    return {
+        'done': done_segments,
+        'total': total_segments,
+        'segments_remaining': total_segments - done_segments,
+        'shapes_done': done_shapes,
+        'shapes_total': total_shapes,
+        'shapes_remaining': total_shapes - done_shapes,
+        'elapsed_seconds': round(elapsed, 3),
+        'remaining_seconds': round(remaining, 3) if remaining is not None else None,
+        'progress_fraction': round(fraction, 4),
+    }
+
+# ── Persistent plot jobs / resume checkpoints ────────────────────────────────
+
+def _now_ms():
+    return int(time.time() * 1000)
+
+def _plot_job_svg_bytes(job):
+    return base64.b64decode(job.get('svg_b64', '').encode('ascii'))
+
+def _save_plot_job(job):
+    job['updated_at'] = _now_ms()
+    tmp = PLOT_JOB_PATH.with_suffix(PLOT_JOB_PATH.suffix + '.tmp')
+    tmp.write_text(json.dumps(job, indent=2))
+    tmp.replace(PLOT_JOB_PATH)
+    return job
+
+def _load_plot_job():
+    if not PLOT_JOB_PATH.exists():
+        return None
+    try:
+        return json.loads(PLOT_JOB_PATH.read_text())
+    except Exception:
+        return None
+
+def _delete_plot_job():
+    try:
+        PLOT_JOB_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
+def _create_plot_job(svg_bytes, settings, placement):
+    now = _now_ms()
+    copies = max(1, int((settings or {}).get('copies', 1) or 1))
+    job = {
+        'id': uuid.uuid4().hex,
+        'created_at': now,
+        'updated_at': now,
+        'status': 'queued',
+        'svg_b64': base64.b64encode(svg_bytes).decode('ascii'),
+        'settings': dict(settings or {}),
+        'placement': {
+            'x': float((placement or {}).get('x', 0)),
+            'y': float((placement or {}).get('y', 0)),
+        },
+        'copies': copies,
+        'total_paths': 0,
+        'total_shapes': 0,
+        'total_segments': 0,
+        'next_copy': 0,
+        'next_path': 0,
+        'completed_shapes': 0,
+        'completed_segments': 0,
+    }
+    return _save_plot_job(job)
+
+def _checkpoint_plot_job(job, **updates):
+    job.update(updates)
+    return _save_plot_job(job)
+
+def _plot_thread_alive():
+    return bool(_plot_thread and _plot_thread.is_alive())
+
+def _normalised_plot_job(job):
+    if not job:
+        return None
+    if job.get('status') == 'running' and not _plot_thread_alive():
+        job['status'] = 'crashed'
+        _save_plot_job(job)
+    return job
+
+def _plot_job_public(job):
+    job = _normalised_plot_job(job)
+    if not job:
+        return {'exists': False, 'resumable': False}
+
+    total_shapes = max(0, int(job.get('total_shapes', 0) or 0))
+    total_segments = max(0, int(job.get('total_segments', 0) or 0))
+    completed_shapes = min(total_shapes, max(0, int(job.get('completed_shapes', 0) or 0)))
+    completed_segments = min(total_segments, max(0, int(job.get('completed_segments', 0) or 0)))
+    status = job.get('status', 'unknown')
+    resumable = status in {'queued', 'running', 'stopped', 'error', 'crashed'} and (
+        total_shapes == 0 or completed_shapes < total_shapes
+    )
+    return {
+        'exists': True,
+        'id': job.get('id'),
+        'created_at': job.get('created_at'),
+        'updated_at': job.get('updated_at'),
+        'status': status,
+        'resumable': resumable,
+        'copies': int(job.get('copies', 1) or 1),
+        'next_copy': int(job.get('next_copy', 0) or 0),
+        'next_path': int(job.get('next_path', 0) or 0),
+        'total_paths': int(job.get('total_paths', 0) or 0),
+        'total_shapes': total_shapes,
+        'total_segments': total_segments,
+        'completed_shapes': completed_shapes,
+        'completed_segments': completed_segments,
+        'shapes_remaining': max(0, total_shapes - completed_shapes),
+        'segments_remaining': max(0, total_segments - completed_segments),
+        'progress_fraction': round((completed_segments / total_segments) if total_segments else 0.0, 4),
+    }
+
 # ── Plotter driver ────────────────────────────────────────────────────────────
+
+def open_serial(port, timeout=0.1):
+    """Open a plotter connection.
+
+    Accepts a local device path ('/dev/ttyACM0', '/Users/me/.idraw-tty') or a
+    pyserial URL — notably 'socket://HOST:PORT' to reach a plotter shared over
+    the network (e.g. the Pi's socat bridge at socket://100.92.241.24:4000).
+    """
+    if '://' in str(port):
+        return serial.serial_for_url(port, baudrate=115200, timeout=timeout)
+    return serial.Serial(port, 115200, timeout=timeout)
+
 
 class PlotterConn:
     def __init__(self, port, settings):
-        self.ser = serial.Serial(port, 115200, timeout=0.1)
+        self.ser = open_serial(port, timeout=0.1)
         self.cfg = settings
         time.sleep(2)
-        self.ser.read(self.ser.in_waiting)
+        self.ser.read(self.ser.in_waiting or 0)
 
     def close(self):
         try:
@@ -297,11 +794,24 @@ class PlotterConn:
     def draw(self, x, y):
         self._send(f'G01 X{x:.3f} Y{y:.3f} F{self.cfg["speed_pendown"]}')
 
+    def arc(self, cx, cy, r):
+        """Draw a full circle as one native Grbl G2.
+
+        Assumes the pen is already down at the ring's start point (cx + r, cy),
+        so the centre offset is I=-r, J=0 and the move returns to the start.
+        """
+        self._send(f'G02 I{-r:.3f} J0 F{self.cfg["speed_pendown"]}')
+
 # ── Plot worker ───────────────────────────────────────────────────────────────
 
-def _plot_worker(svg_bytes, settings):
+def _plot_worker(job):
     plotter = None
     try:
+        svg_bytes = _plot_job_svg_bytes(job)
+        settings = job.get('settings') or cfg.copy()
+        placement = job.get('placement') or {'x': 0.0, 'y': 0.0}
+        _checkpoint_plot_job(job, status='running')
+
         emit('state', state='homing')
         plotter = PlotterConn(settings['port'], settings)
         emit('log', msg='Homing…')
@@ -314,57 +824,140 @@ def _plot_worker(svg_bytes, settings):
         def on_parse_progress(done, total):
             emit('progress', done=done, total=total)
 
-        polylines = svg_to_polylines(svg_bytes, settings, on_progress=on_parse_progress)
+        polylines = _resolve_polylines(svg_bytes, settings, placement,
+                                       on_progress=on_parse_progress)
         if not polylines:
+            _checkpoint_plot_job(job, status='error', error='No paths found in SVG.')
+            emit('state', state='error')
             emit('error', msg='No paths found in SVG.')
             return
 
-        ox, oy = _placement.get('x', 0.0), _placement.get('y', 0.0)
-        if ox or oy:
-            polylines = [[(x + ox, y - oy) for x, y in poly] for poly in polylines]
+        copies = max(1, int(settings.get('copies', 1) or 1))
+        segments_by_path = [max(0, len(poly) - 1) for poly in polylines]
+        prefix_segments = [0]
+        for count in segments_by_path:
+            prefix_segments.append(prefix_segments[-1] + count)
+        total_per_copy = sum(len(p) - 1 for p in polylines)
+        total = total_per_copy * copies
+        total_shapes = len(polylines) * copies
+        estimate = _estimate_polylines(polylines, settings)
+        estimated_seconds = estimate.get('estimated_seconds')
+        started_at = time.time()
+        total_paths = len(polylines)
+        start_copy = max(0, min(copies, int(job.get('next_copy', 0) or 0)))
+        start_path = max(0, int(job.get('next_path', 0) or 0))
+        if total_paths and start_path >= total_paths:
+            start_copy = min(copies, start_copy + start_path // total_paths)
+            start_path = start_path % total_paths
+        if start_copy >= copies:
+            start_path = 0
+        done_shapes = min(total_shapes, start_copy * total_paths + start_path)
+        done = min(total, start_copy * total_per_copy + prefix_segments[start_path])
 
-        total = sum(len(p) - 1 for p in polylines)
-        done  = 0
-        emit('state', state='plotting', total=total, done=0)
-        emit('log', msg=f'Plotting {len(polylines)} paths, {total} segments…')
+        _checkpoint_plot_job(
+            job,
+            status='running',
+            copies=copies,
+            total_paths=total_paths,
+            total_shapes=total_shapes,
+            total_segments=total,
+            next_copy=start_copy,
+            next_path=start_path,
+            completed_shapes=done_shapes,
+            completed_segments=done,
+        )
 
-        for copy_i in range(settings.get('copies', 1)):
+        emit('state', state='plotting', total=total, done=done,
+             shapes_total=total_shapes, shapes_done=done_shapes,
+             estimated_seconds=estimated_seconds)
+        emit('progress', phase='plotting',
+             **_plot_progress_payload(done, total, done_shapes, total_shapes,
+                                      started_at, estimated_seconds=estimated_seconds))
+        if done_shapes:
+            emit('log', msg=f'Resuming at copy {start_copy + 1}, path {start_path + 1}.')
+        emit('log', msg=f'Plotting {len(polylines)} paths, {total_per_copy} segments per copy…')
+
+        for copy_i in range(start_copy, copies):
             if _stop_event.is_set():
-                break
-            if copy_i > 0:
+                raise RuntimeError('__stopped__')
+            path_start = start_path if copy_i == start_copy else 0
+            if copy_i > 0 and path_start == 0:
                 delay = settings.get('page_delay', 15)
                 emit('log', msg=f'Waiting {delay}s before copy {copy_i + 1}…')
                 for _ in range(delay * 10):
                     if _stop_event.is_set():
-                        break
+                        raise RuntimeError('__stopped__')
                     time.sleep(0.1)
 
-            for poly in polylines:
+            for path_i, poly in enumerate(polylines[path_start:], start=path_start):
                 if _stop_event.is_set():
-                    break
+                    raise RuntimeError('__stopped__')
                 plotter.move(poly[0][0], poly[0][1])
                 plotter.pen_down()
-                for pt in poly[1:]:
-                    if _stop_event.is_set():
-                        break
-                    plotter.draw(pt[0], pt[1])
-                    done += 1
-                    if done % 25 == 0:
-                        emit('progress', done=done, total=total)
+                arc = getattr(poly, 'arc', None)
+                if arc is not None:
+                    # one native G2 instead of len(poly)-1 straight segments
+                    plotter.arc(arc['cx'], arc['cy'], arc['r'])
+                    done += max(0, len(poly) - 1)
+                    emit('progress', phase='plotting',
+                         **_plot_progress_payload(done, total, done_shapes, total_shapes,
+                                                  started_at, estimated_seconds=estimated_seconds))
+                else:
+                    for pt in poly[1:]:
+                        if _stop_event.is_set():
+                            raise RuntimeError('__stopped__')
+                        plotter.draw(pt[0], pt[1])
+                        done += 1
+                        if done % 25 == 0:
+                            emit('progress', phase='plotting',
+                                 **_plot_progress_payload(done, total, done_shapes, total_shapes,
+                                                          started_at, estimated_seconds=estimated_seconds))
                 plotter.pen_up()
+                next_copy = copy_i
+                next_path = path_i + 1
+                if next_path >= total_paths:
+                    next_copy += 1
+                    next_path = 0
+                done_shapes = min(total_shapes, next_copy * total_paths + next_path)
+                done = min(total, next_copy * total_per_copy + prefix_segments[next_path])
+                _checkpoint_plot_job(
+                    job,
+                    status='running',
+                    next_copy=next_copy,
+                    next_path=next_path,
+                    completed_shapes=done_shapes,
+                    completed_segments=done,
+                )
+                emit('progress', phase='plotting',
+                     **_plot_progress_payload(done, total, done_shapes, total_shapes,
+                                              started_at, estimated_seconds=estimated_seconds))
 
         plotter.pen_up()
         emit('log', msg='Returning home…')
         plotter.move(0, 0)
+        _checkpoint_plot_job(
+            job,
+            status='done',
+            next_copy=copies,
+            next_path=0,
+            completed_shapes=total_shapes,
+            completed_segments=total,
+        )
         emit('state', state='done')
-        emit('progress', done=total, total=total)
+        emit('progress', phase='plotting',
+             **_plot_progress_payload(total, total, total_shapes, total_shapes,
+                                      started_at, estimated_seconds=estimated_seconds))
         emit('log', msg='Done!')
 
     except Exception as exc:
         if _stop_event.is_set() or '__stopped__' in str(exc):
+            if job:
+                _checkpoint_plot_job(job, status='stopped')
             emit('state', state='idle')
             emit('log', msg='Stopped.')
         else:
+            if job:
+                _checkpoint_plot_job(job, status='error', error=str(exc))
             emit('state', state='error')
             emit('error', msg=str(exc))
     finally:
@@ -405,6 +998,23 @@ def placement_route():
     }
     return jsonify(ok=True)
 
+@app.route('/api/plot/estimate')
+def plot_estimate():
+    if _current_svg is None:
+        return jsonify(error='No SVG loaded'), 400
+    try:
+        settings = cfg.copy()
+        polylines = _placed_polylines(_current_svg, settings)
+        if not polylines:
+            return jsonify(error='No paths found in SVG.'), 400
+        return jsonify(ok=True, **_estimate_polylines(polylines, settings))
+    except Exception as exc:
+        return jsonify(error=str(exc)), 500
+
+@app.route('/api/plot/job')
+def plot_job_route():
+    return jsonify(_plot_job_public(_load_plot_job()))
+
 @app.route('/api/plot', methods=['POST'])
 def plot():
     global _plot_thread, _stop_event
@@ -412,16 +1022,41 @@ def plot():
         return jsonify(error='No SVG loaded'), 400
     if _plot_thread and _plot_thread.is_alive():
         return jsonify(error='Already plotting'), 400
-    while not _events.empty():
-        try:
-            _events.get_nowait()
-        except queue.Empty:
-            break
+    _clear_events()
+    _clear_last_plot_events()
     _stop_event.clear()
+    job = _create_plot_job(_current_svg, cfg.copy(), _placement.copy())
     _plot_thread = threading.Thread(
-        target=_plot_worker, args=(_current_svg, cfg.copy()), daemon=True
+        target=_plot_worker, args=(job,), daemon=True
     )
     _plot_thread.start()
+    return jsonify(ok=True, job=_plot_job_public(job))
+
+@app.route('/api/plot/resume', methods=['POST'])
+def resume_plot():
+    global _plot_thread, _stop_event
+    job = _normalised_plot_job(_load_plot_job())
+    public = _plot_job_public(job)
+    if not public.get('exists'):
+        return jsonify(error='No saved plot job'), 404
+    if not public.get('resumable'):
+        return jsonify(error='Saved plot job is not resumable'), 400
+    if _plot_thread and _plot_thread.is_alive():
+        return jsonify(error='Already plotting'), 400
+    _clear_events()
+    _clear_last_plot_events()
+    _stop_event.clear()
+    _plot_thread = threading.Thread(
+        target=_plot_worker, args=(job,), daemon=True
+    )
+    _plot_thread.start()
+    return jsonify(ok=True, job=_plot_job_public(job))
+
+@app.route('/api/plot/discard', methods=['POST'])
+def discard_plot_job():
+    if _plot_thread and _plot_thread.is_alive():
+        return jsonify(error='Cannot discard while plotting'), 400
+    _delete_plot_job()
     return jsonify(ok=True)
 
 @app.route('/api/stop', methods=['POST'])
@@ -434,12 +1069,16 @@ def stop_plot():
 @app.route('/api/stream')
 def stream():
     def generate():
-        while True:
-            try:
-                evt = _events.get(timeout=15)
-                yield f"data: {json.dumps(evt)}\n\n"
-            except queue.Empty:
-                yield 'data: {"t":"ping"}\n\n'
+        q = _subscribe_events()
+        try:
+            while True:
+                try:
+                    evt = q.get(timeout=15)
+                    yield f"data: {json.dumps(evt)}\n\n"
+                except queue.Empty:
+                    yield 'data: {"t":"ping"}\n\n'
+        finally:
+            _unsubscribe_events(q)
     return Response(
         stream_with_context(generate()),
         mimetype='text/event-stream',
@@ -471,7 +1110,7 @@ def manual():
     data = request.json or {}
     cmd  = data.get('cmd')
     try:
-        ser = serial.Serial(cfg['port'], 115200, timeout=5)
+        ser = open_serial(cfg['port'], timeout=5)
         time.sleep(2)
         if ser.in_waiting:
             ser.read(ser.in_waiting)
@@ -550,10 +1189,16 @@ def api_image():
     except Exception as exc:
         return jsonify(error=f'Not a readable image: {exc}'), 400
     _project.set_image(data, f.filename)
-    b64 = base64.b64encode(data).decode('ascii')
-    mime = f.mimetype or 'image/png'
+    image_url = f'/api/source-image?v={int(time.time() * 1000)}'
     return jsonify(ok=True, width=w, height=h, name=f.filename,
-                   data_url=f'data:{mime};base64,{b64}')
+                   image_url=image_url)
+
+@app.route('/api/source-image')
+def api_source_image():
+    ip = _project.image_path
+    if not ip or not ip.exists():
+        return jsonify(error='No image loaded'), 404
+    return send_file(ip)
 
 @app.route('/api/pfm/list')
 def api_pfm_list():
@@ -614,6 +1259,7 @@ def api_process():
     _drawing_set_from(data.get('drawing_set'))
     params = data.get('params') or {}
     seed = int(data.get('seed', params.get('seed', 0)) or 0)
+    _clear_last_proc_events()
     _process_thread = threading.Thread(
         target=_process_worker, args=(pfm_id, params, seed), daemon=True)
     _process_thread.start()
