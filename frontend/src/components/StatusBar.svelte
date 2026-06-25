@@ -3,6 +3,17 @@
 
   const gpu = $derived(studio.backend.startsWith("torch"));
   const lastLog = $derived(studio.log[studio.log.length - 1] ?? "");
+
+  function fmtSeconds(value: number | null | undefined) {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+    const total = Math.max(0, Math.round(value));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h) return `${h}h ${m}m`;
+    if (m) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
 </script>
 
 <div class="status">
@@ -12,7 +23,11 @@
     <div class="bar"><div class="fill" style:width={`${studio.progress * 100}%`}></div></div>
   {/if}
   <div class="spacer"></div>
-  {#if studio.stats}
+  {#if studio.plotting && studio.plotProgress}
+    <span class="muted">elapsed {fmtSeconds(studio.plotProgress.elapsed_seconds)}</span>
+    <span class="muted">left {fmtSeconds(studio.plotProgress.remaining_seconds)}</span>
+    <span class="muted">{studio.plotProgress.shapes_done.toLocaleString()} / {studio.plotProgress.shapes_total.toLocaleString()} shapes</span>
+  {:else if studio.stats}
     <span class="muted">{studio.stats.total.toLocaleString()} shapes</span>
     <span class="muted">· {studio.stats.length_mm.toLocaleString()} mm</span>
   {/if}

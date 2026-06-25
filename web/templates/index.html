@@ -337,8 +337,10 @@
       <div class="field">
         <label>Reordering</label>
         <select id="s-reordering">
-          <option value="0" {% if cfg.reordering==0 %}selected{% endif %}>None — preserve file order</option>
-          <option value="1" {% if cfg.reordering==1 %}selected{% endif %}>Nearest neighbour (faster plotting)</option>
+          <option value="none" {% if cfg.reordering in [0, '0', 'none'] %}selected{% endif %}>None — preserve file order</option>
+          <option value="nearest" {% if cfg.reordering in [1, '1', 'nearest'] %}selected{% endif %}>Nearest neighbour</option>
+          <option value="nearest_reversible" {% if cfg.reordering in [2, '2', 'nearest_reversible'] %}selected{% endif %}>Nearest + reverse paths</option>
+          <option value="two_opt" {% if cfg.reordering in [3, '3', 'two_opt'] %}selected{% endif %}>2-opt optimizer</option>
         </select>
       </div>
       <div class="field">

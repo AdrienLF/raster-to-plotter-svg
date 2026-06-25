@@ -2,6 +2,10 @@ import type {
   AreaT,
   DrawingSetT,
   Param,
+  PlacementMm,
+  PlotEstimate,
+  PlotJob,
+  PlotProgress,
   PfmInfo,
   Stats,
   VersionT,
@@ -34,6 +38,15 @@ class Studio {
 
   // versions
   versions = $state<VersionT[]>([]);
+
+  // plotter / machine
+  settings = $state<Record<string, any> | null>(null);
+  machineStatus = $state("");
+  placement = $state<PlacementMm>({ x: 0, y: 0 });
+  plotEstimate = $state<PlotEstimate | null>(null);
+  plotJob = $state<PlotJob | null>(null);
+  plotProgress = $state<PlotProgress | null>(null);
+  plotterTab = $state("estimate");
 
   // preview + status
   previewSvg = $state<string | null>(null);

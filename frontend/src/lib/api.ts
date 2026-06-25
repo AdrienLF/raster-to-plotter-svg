@@ -22,12 +22,38 @@ function paramDefaults(schema: Param[]): Record<string, any> {
   return out;
 }
 
+function normalizeReordering(value: any) {
+  const key = String(value).trim().toLowerCase().replace(/[-\s]/g, "_");
+  const aliases: Record<string, string> = {
+    "0": "none",
+    "false": "none",
+    none: "none",
+    off: "none",
+    "1": "nearest",
+    nearest: "nearest",
+    nearest_neighbor: "nearest",
+    nearest_neighbour: "nearest",
+    "2": "nearest_reversible",
+    nearest_reverse: "nearest_reversible",
+    nearest_reversible: "nearest_reversible",
+    reversible: "nearest_reversible",
+    "3": "two_opt",
+    twoopt: "two_opt",
+    "2opt": "two_opt",
+    "2_opt": "two_opt",
+    two_opt: "two_opt",
+  };
+  return aliases[key] ?? "nearest";
+}
+
 export const api = {
   async boot() {
-    const [list, area, pens] = await Promise.all([
+    const [list, area, pens, settings, plotJob] = await Promise.all([
       jget("/api/pfm/list"),
       jget("/api/area"),
       jget("/api/pens"),
+      jget("/api/settings"),
+      jget("/api/plot/job"),
     ]);
     studio.pfms = list.pfms;
     studio.backend = list.backend;
@@ -35,6 +61,8 @@ export const api = {
     studio.presets = area.presets;
     studio.drawingSet = pens.drawing_set;
     studio.libraries = pens.libraries;
+    studio.settings = { ...settings, reordering: normalizeReordering(settings.reordering) };
+    studio.plotJob = plotJob;
     await this.selectPfm(studio.pfmId);
     await this.refreshVersions();
   },
@@ -56,11 +84,30 @@ export const api = {
     const r = await fetch("/api/image", { method: "POST", body: fd });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "upload failed");
-    studio.imageUrl = j.data_url;
+    studio.imageUrl = j.image_url ?? j.data_url;
     studio.imageName = j.name;
     studio.imageW = j.width;
     studio.imageH = j.height;
     pushLog(`Loaded image ${j.name} (${j.width}×${j.height})`);
+  },
+
+  async uploadSvg(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "SVG upload failed");
+    studio.previewSvg = j.svg;
+    studio.imageUrl = null;
+    studio.imageName = j.name;
+    studio.processing = false;
+    studio.progress = 0;
+    studio.status = "Ready";
+    studio.placement = { x: 0, y: 0 };
+    studio.stats = null;
+    studio.plotProgress = null;
+    pushLog(`Loaded SVG ${j.name}`);
+    await this.refreshEstimate(true);
   },
 
   async saveArea() {
@@ -147,11 +194,70 @@ export const api = {
   },
 
   async plot() {
-    await jpost("/api/plot").catch((e) => pushLog("Plot error: " + e.message));
+    studio.plotProgress = null;
+    const j = await jpost("/api/plot").catch((e) => {
+      pushLog("Plot error: " + e.message);
+      return null;
+    });
+    if (j?.job) studio.plotJob = j.job;
+  },
+
+  async resumePlot() {
+    studio.plotProgress = null;
+    const j = await jpost("/api/plot/resume");
+    if (j.job) studio.plotJob = j.job;
+    pushLog("Resume requested");
   },
 
   async stop() {
     await jpost("/api/stop").catch(() => {});
+    await this.refreshPlotJob();
+  },
+
+  async saveSettings() {
+    if (!studio.settings) return;
+    const j = await jpost("/api/settings", studio.settings);
+    studio.settings = { ...j.cfg, reordering: normalizeReordering(j.cfg.reordering) };
+    pushLog(`Plotter settings saved · ${j.cfg.port}`);
+  },
+
+  async refreshEstimate(silent = false) {
+    const r = await fetch("/api/plot/estimate");
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      studio.plotEstimate = null;
+      if (!silent) pushLog("Estimate error: " + (j.error || r.statusText));
+      return null;
+    }
+    studio.plotEstimate = j;
+    return j;
+  },
+
+  async refreshPlotJob() {
+    const j = await jget("/api/plot/job");
+    studio.plotJob = j;
+    return j;
+  },
+
+  async discardPlotJob() {
+    await jpost("/api/plot/discard");
+    studio.plotJob = { exists: false, resumable: false };
+    studio.plotProgress = null;
+    pushLog("Saved plot job discarded");
+  },
+
+  async savePlacement(silent = true) {
+    await jpost("/api/placement", studio.placement);
+    await this.refreshEstimate(true);
+    if (!silent) {
+      pushLog(`Placement saved · x ${studio.placement.x.toFixed(1)} · y ${studio.placement.y.toFixed(1)} mm`);
+    }
+  },
+
+  async manual(cmd: string, data: Record<string, any> = {}) {
+    const j = await jpost("/api/manual", { cmd, ...data });
+    if (j.status) studio.machineStatus = j.status;
+    return j;
   },
 };
 
@@ -171,8 +277,38 @@ export function connectStream() {
     else if (m.t === "state") {
       studio.status = cap(m.state);
       studio.plotting = m.state === "plotting" || m.state === "homing" || m.state === "parsing";
+      if (m.state === "plotting") {
+        studio.plotProgress = {
+          done: m.done ?? 0,
+          total: m.total ?? 0,
+          segments_remaining: Math.max(0, (m.total ?? 0) - (m.done ?? 0)),
+          shapes_done: m.shapes_done ?? 0,
+          shapes_total: m.shapes_total ?? 0,
+          shapes_remaining: Math.max(0, (m.shapes_total ?? 0) - (m.shapes_done ?? 0)),
+          elapsed_seconds: 0,
+          remaining_seconds: m.estimated_seconds ?? null,
+          progress_fraction: 0,
+        };
+      } else if (m.state === "done" || m.state === "idle" || m.state === "error") {
+        void api.refreshPlotJob();
+      }
     } else if (m.t === "progress") {
-      if (m.total) studio.progress = m.done / m.total;
+      if (m.phase === "plotting") {
+        studio.plotProgress = {
+          done: m.done ?? 0,
+          total: m.total ?? 0,
+          segments_remaining: m.segments_remaining ?? 0,
+          shapes_done: m.shapes_done ?? 0,
+          shapes_total: m.shapes_total ?? 0,
+          shapes_remaining: m.shapes_remaining ?? 0,
+          elapsed_seconds: m.elapsed_seconds ?? 0,
+          remaining_seconds: m.remaining_seconds ?? null,
+          progress_fraction: m.progress_fraction ?? 0,
+        };
+        studio.progress = studio.plotProgress.progress_fraction;
+      } else if (m.total) {
+        studio.progress = m.done / m.total;
+      }
     } else if (m.t === "error") {
       pushLog("⚠ " + m.msg);
       studio.status = "Error";
@@ -203,6 +339,7 @@ function handleProc(m: any) {
       per_pen: m.per_pen,
     };
     pushLog(`Generated ${m.total} shapes · ${m.length_mm} mm · ${m.backend}`);
+    void api.refreshEstimate(true);
   } else if (m.state === "error") {
     studio.processing = false;
     studio.status = "Error";

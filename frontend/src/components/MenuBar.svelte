@@ -2,7 +2,7 @@
   import { studio } from "../lib/state.svelte";
   import { api } from "../lib/api";
 
-  let { onImport }: { onImport: () => void } = $props();
+  let { onImport, onPlot }: { onImport: () => void; onPlot: () => void } = $props();
 
   function exportSvg(split: boolean) {
     window.location.href = api.exportUrl(split);
@@ -25,7 +25,7 @@
     <summary>Drawing</summary>
     <div class="items">
       <button disabled={!studio.imageUrl} onclick={() => api.process()}>Run path finding</button>
-      <button disabled={!studio.previewSvg} onclick={() => api.plot()}>Plot…</button>
+      <button disabled={!studio.previewSvg} onclick={onPlot}>Plot…</button>
     </div>
   </details>
 

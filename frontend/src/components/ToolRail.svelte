@@ -2,7 +2,15 @@
   import { studio } from "../lib/state.svelte";
   import { api } from "../lib/api";
 
-  let { onImport, onFit }: { onImport: () => void; onFit: () => void } = $props();
+  let {
+    onImport,
+    onFit,
+    onPlot,
+  }: {
+    onImport: () => void;
+    onFit: () => void;
+    onPlot: () => void;
+  } = $props();
 </script>
 
 <div class="rail">
@@ -20,7 +28,7 @@
     class="icon"
     title="Plot"
     disabled={studio.plotting || !studio.previewSvg}
-    onclick={() => api.plot()}>🖊</button
+    onclick={onPlot}>🖊</button
   >
   <button class="icon stop" title="Stop" disabled={!studio.plotting} onclick={() => api.stop()}>■</button>
 </div>
