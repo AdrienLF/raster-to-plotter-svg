@@ -48,6 +48,11 @@ class Studio {
     layers: [],
   });
   showLayerBounds = $state(true);
+  // Active mask-drawing tool (composition step). null = not drawing.
+  maskMode = $state<null | "rect" | "ellipse" | "pen">(null);
+  // When true, on-canvas handles edit the selected layer's mask instead of
+  // scaling the layer.
+  maskEdit = $state(false);
 
   // pens
   drawingSet = $state<DrawingSetT | null>(null);
@@ -89,6 +94,29 @@ class Studio {
 }
 
 export const studio = new Studio();
+
+// Layer bounds on the page, accounting for an active crop and scale. Mirrors
+// engine.composition.effective_bounds on the backend.
+export function effectiveBounds(layer: CompositionLayerT) {
+  const s = layer.scale || 1;
+  const c = layer.crop;
+  const cx = c?.x || 0;
+  const cy = c?.y || 0;
+  const cw = c?.width || layer.width;
+  const ch = c?.height || layer.height;
+  return {
+    x: layer.x + s * cx,
+    y: layer.y + s * cy,
+    width: s * cw,
+    height: s * ch,
+  };
+}
+
+// Offset between a layer's visible top-left and its stored anchor (layer.x/y).
+export function anchorOffset(layer: CompositionLayerT) {
+  const s = layer.scale || 1;
+  return { x: s * (layer.crop?.x || 0), y: s * (layer.crop?.y || 0) };
+}
 
 export function pushLog(msg: string) {
   const t = new Date().toLocaleTimeString();

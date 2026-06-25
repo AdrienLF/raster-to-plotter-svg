@@ -17,6 +17,12 @@
     await api.selectGenerator((e.target as HTMLSelectElement).value);
   }
 
+  async function onTarget(e: Event) {
+    const value = (e.target as HTMLSelectElement).value;
+    if (value === "__new__") await api.newLayer();
+    else await api.selectLayer(value);
+  }
+
   // Auto-redraw: regenerate (debounced) on entering the step and whenever a
   // parameter changes. The panel only mounts on the Generate step, so the
   // initial run gives an immediate first draw.
@@ -36,18 +42,11 @@
 <div class="col">
   <label class="target">
     <span>Layer</span>
-    <select
-      value={studio.composition.selected_layer_id ?? ""}
-      onchange={(e) => api.selectLayer((e.target as HTMLSelectElement).value)}
-      disabled={!studio.composition.layers.length}
-    >
-      {#if !studio.composition.layers.length}
-        <option value="">New layer will be created</option>
-      {:else}
-        {#each studio.composition.layers as layer (layer.id)}
-          <option value={layer.id}>{layer.name}</option>
-        {/each}
-      {/if}
+    <select value={studio.composition.selected_layer_id ?? "__new__"} onchange={onTarget}>
+      <option value="__new__">＋ New layer</option>
+      {#each studio.composition.layers as layer (layer.id)}
+        <option value={layer.id}>{layer.name}</option>
+      {/each}
     </select>
   </label>
 

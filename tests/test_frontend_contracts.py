@@ -40,7 +40,9 @@ class FrontendContractsTest(unittest.TestCase):
 
         self.assertIn("clamp = true", placement)
         self.assertIn("snapPlacement(raw, drawingSize, page, A4_PORTRAIT, 4, false)", viewport)
-        self.assertIn("alignPlacement(mode, { x: layer.x, y: layer.y }, drawingSize, page, false)", viewport)
+        # align passes the visible (anchor-offset) position and clamp=false.
+        self.assertIn("{ x: layer.x + off.x, y: layer.y + off.y }", viewport)
+        self.assertIn("alignPlacement(", viewport)
         self.assertNotIn("clampPlacement", viewport)
 
 

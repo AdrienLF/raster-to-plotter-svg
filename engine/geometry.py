@@ -149,6 +149,85 @@ def clip_polyline(points: list[Point], rect: tuple[float, float, float, float]) 
     return out
 
 
+# ── Clipping (general polygon) ──────────────────────────────────────────────────
+
+def point_in_polygon(pt: Point, poly: list[Point]) -> bool:
+    """Even-odd ray-cast test. ``poly`` is a list of vertices (open ring)."""
+    x, y = pt
+    inside = False
+    n = len(poly)
+    if n < 3:
+        return False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if (yi > y) != (yj > y):
+            x_cross = xi + (y - yi) * (xj - xi) / (yj - yi)
+            if x < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _segment_polygon_ts(
+    ax: float, ay: float, bx: float, by: float, poly: list[Point]
+) -> list[float]:
+    """Parameters t in (0,1) where segment a→b crosses any edge of ``poly``."""
+    rx, ry = bx - ax, by - ay
+    ts: list[float] = []
+    n = len(poly)
+    for i in range(n):
+        cx, cy = poly[i]
+        dx_, dy_ = poly[(i + 1) % n]
+        sx, sy = dx_ - cx, dy_ - cy
+        denom = rx * sy - ry * sx
+        if denom == 0:
+            continue  # parallel / collinear — midpoint test still classifies sub-spans
+        t = ((cx - ax) * sy - (cy - ay) * sx) / denom
+        u = ((cx - ax) * ry - (cy - ay) * rx) / denom
+        if 0.0 <= u <= 1.0 and 0.0 < t < 1.0:
+            ts.append(t)
+    return ts
+
+
+def clip_polyline_polygon(points: list[Point], polygon: list[Point]) -> list[list[Point]]:
+    """Clip an open polyline to an arbitrary (possibly concave) closed polygon.
+
+    Returns the list of sub-polylines that fall inside ``polygon``.
+    """
+    if len(polygon) < 3 or len(points) < 2:
+        return []
+    out: list[list[Point]] = []
+    current: list[Point] = []
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        cuts = sorted(set(_segment_polygon_ts(x0, y0, x1, y1, polygon)))
+        bounds = [0.0] + cuts + [1.0]
+        dx, dy = x1 - x0, y1 - y0
+        for ta, tb in zip(bounds, bounds[1:]):
+            if tb - ta < 1e-9:
+                continue
+            tm = (ta + tb) / 2
+            if not point_in_polygon((x0 + tm * dx, y0 + tm * dy), polygon):
+                if len(current) >= 2:
+                    out.append(current)
+                current = []
+                continue
+            a = (x0 + ta * dx, y0 + ta * dy)
+            b = (x0 + tb * dx, y0 + tb * dy)
+            if not current:
+                current = [a, b]
+            elif current[-1] == a:
+                current.append(b)
+            else:
+                if len(current) >= 2:
+                    out.append(current)
+                current = [a, b]
+    if len(current) >= 2:
+        out.append(current)
+    return out
+
+
 def clip_drawing(drawing: Drawing, rect: tuple[float, float, float, float]) -> None:
     """In-place clip of every layer's geometry to ``rect`` (working-pixel coords)."""
     xmin, ymin, xmax, ymax = rect

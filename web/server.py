@@ -1166,6 +1166,12 @@ def api_composition_layer(layer_id):
         layer.x = float(data['x'])
     if 'y' in data:
         layer.y = float(data['y'])
+    if 'scale' in data:
+        layer.scale = max(0.01, float(data['scale']))
+    if 'crop' in data:
+        layer.crop = _validate_crop(data['crop'])
+    if 'mask' in data:
+        layer.mask = _validate_mask(data['mask'])
     if data.get('selected'):
         _composition().selected_layer_id = layer.id
     _project.save_composition_layers()
@@ -1174,6 +1180,45 @@ def api_composition_layer(layer_id):
         ok=True,
         composition=_composition_payload(),
     )
+
+
+def _validate_crop(value):
+    if not value:
+        return None
+    return {k: float(value[k]) for k in ('x', 'y', 'width', 'height')}
+
+
+def _validate_mask(value):
+    if not value:
+        return None
+    kind = value.get('type')
+    if kind == 'rect':
+        return {'type': 'rect', **{k: float(value[k]) for k in ('x', 'y', 'width', 'height')}}
+    if kind == 'ellipse':
+        return {'type': 'ellipse', **{k: float(value[k]) for k in ('cx', 'cy', 'rx', 'ry')}}
+    if kind == 'path':
+        return {'type': 'path', 'd': str(value.get('d') or '')}
+    raise ValueError(f'Unknown mask type: {kind!r}')
+
+
+@app.route('/api/composition/layers/<layer_id>/crop-to-content', methods=['POST'])
+def api_crop_to_content(layer_id):
+    from engine.layer_clip import layer_content_bbox
+    layer = next((l for l in _composition().layers if l.id == layer_id), None)
+    if not layer:
+        return jsonify(error='Unknown layer'), 404
+    box = layer_content_bbox(layer.svg)
+    if not box:
+        return jsonify(error='Layer has no content to crop'), 400
+    x0, y0, x1, y1 = box
+    x0 = max(0.0, x0)
+    y0 = max(0.0, y0)
+    x1 = min(float(layer.width), x1)
+    y1 = min(float(layer.height), y1)
+    layer.crop = {'x': x0, 'y': y0, 'width': max(0.0, x1 - x0), 'height': max(0.0, y1 - y0)}
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    return jsonify(ok=True, composition=_composition_payload())
 
 @app.route('/api/composition/layers/<layer_id>/duplicate', methods=['POST'])
 def api_duplicate_layer(layer_id):
@@ -1186,6 +1231,15 @@ def api_duplicate_layer(layer_id):
         ok=True,
         composition=_composition_payload(),
     )
+
+@app.route('/api/composition/new-layer', methods=['POST'])
+def api_new_layer():
+    # Clear the selection so the next generate / pathfinding / upload creates a
+    # fresh layer instead of replacing the current one.
+    _composition().selected_layer_id = None
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    return jsonify(ok=True, composition=_composition_payload())
 
 @app.route('/api/composition/layers/<layer_id>', methods=['DELETE'])
 def api_delete_layer(layer_id):

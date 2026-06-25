@@ -1,5 +1,5 @@
 import { studio, pushLog } from "./state.svelte";
-import type { Param } from "./types";
+import type { MaskShape, Param } from "./types";
 
 async function jget(url: string) {
   const r = await fetch(url);
@@ -102,9 +102,36 @@ export const api = {
     return j;
   },
 
+  async cropToContent(id: string) {
+    const j = await jpost(`/api/composition/layers/${id}/crop-to-content`);
+    this.applyComposition(j);
+    await this.refreshEstimate(true);
+    return j;
+  },
+
+  async clearCrop(id: string) {
+    return this.patchLayer(id, { crop: null });
+  },
+
+  async setMask(id: string, mask: MaskShape) {
+    return this.patchLayer(id, { mask });
+  },
+
+  async clearMask(id: string) {
+    return this.patchLayer(id, { mask: null });
+  },
+
   async selectLayer(id: string) {
     if (!id) return;
     await this.patchLayer(id, { selected: true });
+  },
+
+  // Clear the target so the next generate / upload creates a new layer.
+  async newLayer() {
+    const j = await jpost("/api/composition/new-layer");
+    this.applyComposition(j);
+    await this.refreshEstimate(true);
+    return j;
   },
 
   async duplicateLayer(id: string) {

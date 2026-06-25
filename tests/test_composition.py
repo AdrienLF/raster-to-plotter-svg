@@ -5,14 +5,19 @@ import unittest
 import zipfile
 from pathlib import Path
 
+import re
+
 from engine.composition import (
     A3_PAGE,
     Composition,
+    CompositionLayer,
     compose_visible_svg,
+    effective_bounds,
     layer_svg_zip,
     parse_svg_size_mm,
     replace_selected_layer,
 )
+from engine.geometry import clip_polyline_polygon, point_in_polygon
 import web.server as server
 
 
@@ -146,6 +151,81 @@ class CompositionTest(unittest.TestCase):
         self.assertEqual(comp.selected_layer_id, copy.id)
 
 
+LAYER_BOX = """<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">
+  <rect x="20" y="30" width="40" height="25" fill="none" stroke="black"/>
+</svg>"""
+
+LAYER_LINE = """<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">
+  <path d="M0 50 L100 50" stroke="black"/>
+</svg>"""
+
+
+def _path_ds(svg_body: str) -> list[str]:
+    return re.findall(r'<path d="([^"]+)"', svg_body)
+
+
+class CropMaskTest(unittest.TestCase):
+    def test_clip_polyline_polygon_handles_concave_shape(self):
+        # A "C" shape with a notch on the right; a horizontal line at y=5 enters
+        # the notch and should be cut into the solid part only.
+        poly = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 7), (7, 7), (7, 3), (0, 3)]
+        self.assertTrue(point_in_polygon((1, 1), poly))
+        self.assertFalse(point_in_polygon((3, 5), poly))
+        clipped = clip_polyline_polygon([(-1, 5), (11, 5)], poly)
+        self.assertEqual(clipped, [[(7.0, 5.0), (10.0, 5.0)]])
+
+    def test_effective_bounds_offsets_by_crop(self):
+        layer = CompositionLayer(id="a", name="t", kind="svg", width=100, height=100, svg=LAYER_BOX)
+        layer.x, layer.y = 5, 8
+        layer.crop = {"x": 20, "y": 30, "width": 40, "height": 25}
+        self.assertEqual(
+            effective_bounds(layer),
+            {"x": 25, "y": 38, "width": 40, "height": 25},
+        )
+
+    def test_crop_and_mask_roundtrip_through_dict(self):
+        layer = CompositionLayer(id="a", name="t", kind="svg", width=100, height=100, svg=LAYER_BOX)
+        layer.crop = {"x": 1, "y": 2, "width": 3, "height": 4}
+        layer.mask = {"type": "path", "d": "M 0 0 L 10 0 L 5 10 Z"}
+        restored = CompositionLayer.from_dict(layer.to_dict(include_svg=True))
+        self.assertEqual(restored.crop, layer.crop)
+        self.assertEqual(restored.mask, layer.mask)
+
+    def test_replace_clears_existing_crop_and_mask(self):
+        comp = Composition()
+        layer = comp.add_layer(LAYER_BOX, "A", "svg", {})
+        layer.crop = {"x": 1, "y": 2, "width": 3, "height": 4}
+        layer.mask = {"type": "rect", "x": 0, "y": 0, "width": 5, "height": 5}
+        replace_selected_layer(comp, LAYER_LINE, name="A", kind="svg", source={})
+        self.assertIsNone(comp.layers[0].crop)
+        self.assertIsNone(comp.layers[0].mask)
+
+    def test_rect_mask_bakes_clipped_geometry(self):
+        comp = Composition()
+        layer = comp.add_layer(LAYER_LINE, "L", "svg", {})
+        layer.mask = {"type": "rect", "x": 25, "y": 0, "width": 50, "height": 100}
+        svg = compose_visible_svg(comp)
+        ds = _path_ds(svg)
+        # The horizontal line at y=50 survives only within x ∈ [25, 75].
+        self.assertEqual(ds, ["M25 50 L75 50"])
+
+    def test_unclipped_layer_stays_raw(self):
+        comp = Composition()
+        comp.add_layer(LAYER_LINE, "L", "svg", {})
+        svg = compose_visible_svg(comp)
+        self.assertIn("M0 50 L100 50", svg)
+
+    def test_layer_name_with_special_chars_produces_valid_xml(self):
+        # Names like "Spokes & Circles" must not break the composed SVG.
+        from xml.etree import ElementTree as ET
+
+        comp = Composition()
+        comp.add_layer(LAYER_LINE, 'Spokes & Circles <"q">', "generate", {})
+        svg = compose_visible_svg(comp)
+        ET.fromstring(svg.encode("utf-8"))  # raises if not well-formed
+        self.assertIn("Spokes &amp; Circles", svg)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -204,6 +284,34 @@ class CompositionApiTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn(a.id, body)
         self.assertNotIn(b.id, body)
+
+    def test_crop_to_content_sets_crop_to_geometry_bounds(self):
+        layer = server._project.composition.add_layer(LAYER_BOX, "Box", "svg", {})
+
+        response = self.client.post(f"/api/composition/layers/{layer.id}/crop-to-content")
+
+        self.assertEqual(response.status_code, 200)
+        crop = response.get_json()["composition"]["layers"][0]["crop"]
+        self.assertAlmostEqual(crop["x"], 20, delta=0.5)
+        self.assertAlmostEqual(crop["y"], 30, delta=0.5)
+        self.assertAlmostEqual(crop["width"], 40, delta=0.5)
+        self.assertAlmostEqual(crop["height"], 25, delta=0.5)
+
+    def test_patch_sets_and_clears_mask(self):
+        layer = server._project.composition.add_layer(LAYER_BOX, "Box", "svg", {})
+
+        set_resp = self.client.patch(
+            f"/api/composition/layers/{layer.id}",
+            json={"mask": {"type": "ellipse", "cx": 50, "cy": 50, "rx": 20, "ry": 10}},
+        )
+        self.assertEqual(set_resp.status_code, 200)
+        self.assertEqual(layer.mask["type"], "ellipse")
+
+        clear_resp = self.client.patch(
+            f"/api/composition/layers/{layer.id}", json={"mask": None}
+        )
+        self.assertEqual(clear_resp.status_code, 200)
+        self.assertIsNone(layer.mask)
 
     def test_split_export_uses_layer_bounds(self):
         server._project.composition.add_layer(LAYER_A, "A4 Layer", "svg", {})

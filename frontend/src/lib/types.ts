@@ -62,6 +62,18 @@ export interface VersionT {
   thumbnail: string;
 }
 
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type MaskShape =
+  | { type: "rect"; x: number; y: number; width: number; height: number }
+  | { type: "ellipse"; cx: number; cy: number; rx: number; ry: number }
+  | { type: "path"; d: string };
+
 export interface CompositionLayerT {
   id: string;
   name: string;
@@ -74,6 +86,9 @@ export interface CompositionLayerT {
   svg: string;
   svg_path?: string;
   source: Record<string, any>;
+  crop?: CropRect | null;
+  mask?: MaskShape | null;
+  scale?: number;
 }
 
 export interface CompositionT {

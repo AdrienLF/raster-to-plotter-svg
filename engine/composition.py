@@ -7,6 +7,12 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape as _sax_escape
+
+
+def _attr(value: object) -> str:
+    """Escape a string for safe inclusion in a double-quoted XML attribute."""
+    return _sax_escape(str(value), {'"': "&quot;"})
 
 A3_PAGE = {"width": 297.0, "height": 420.0, "units": "mm"}
 
@@ -96,6 +102,9 @@ class CompositionLayer:
     svg: str = ""
     svg_path: str = ""
     source: dict = field(default_factory=dict)
+    crop: dict | None = None
+    mask: dict | None = None
+    scale: float = 1.0
 
     def to_dict(self, include_svg: bool = False) -> dict:
         data = {
@@ -109,6 +118,9 @@ class CompositionLayer:
             "height": self.height,
             "svg_path": self.svg_path,
             "source": self.source,
+            "crop": self.crop,
+            "mask": self.mask,
+            "scale": self.scale,
         }
         if include_svg:
             data["svg"] = self.svg
@@ -128,6 +140,9 @@ class CompositionLayer:
             svg=str(data.get("svg") or ""),
             svg_path=str(data.get("svg_path") or ""),
             source=dict(data.get("source") or {}),
+            crop=data.get("crop") or None,
+            mask=data.get("mask") or None,
+            scale=float(data.get("scale", 1) or 1),
         )
 
 
@@ -229,7 +244,44 @@ def replace_selected_layer(
     layer.height = height
     layer.svg = svg
     layer.source = dict(source or {})
+    # Crop/mask/scale are keyed to the previous geometry; reset them on replace.
+    layer.crop = None
+    layer.mask = None
+    layer.scale = 1.0
     return layer
+
+
+def effective_bounds(layer: CompositionLayer) -> dict:
+    """Layer bounds on the page, accounting for an active crop and scale."""
+    s = float(layer.scale or 1)
+    crop = layer.crop
+    crop_x = float(crop.get("x", 0) or 0) if crop else 0.0
+    crop_y = float(crop.get("y", 0) or 0) if crop else 0.0
+    crop_w = float(crop.get("width", layer.width) or layer.width) if crop else layer.width
+    crop_h = float(crop.get("height", layer.height) or layer.height) if crop else layer.height
+    return {
+        "x": layer.x + s * crop_x,
+        "y": layer.y + s * crop_y,
+        "width": s * crop_w,
+        "height": s * crop_h,
+    }
+
+
+def _layer_body(layer: CompositionLayer) -> str:
+    """Inner SVG for a layer: raw when unclipped, baked when crop/mask present."""
+    if layer.crop or layer.mask:
+        from . import layer_clip
+
+        return layer_clip.clipped_layer_body(layer.svg, layer.crop, layer.mask)
+    return _inner_svg(layer.svg)
+
+
+def _layer_transform(layer: CompositionLayer) -> str:
+    tf = f"translate({_fmt(layer.x)} {_fmt(layer.y)})"
+    s = float(layer.scale or 1)
+    if s != 1:
+        tf += f" scale({_fmt(s)})"
+    return tf
 
 
 def compose_visible_svg(comp: Composition) -> str:
@@ -238,15 +290,30 @@ def compose_visible_svg(comp: Composition) -> str:
         if not layer.visible:
             continue
         body.append(
-            f'<g data-layer-id="{layer.id}" data-layer-name="{layer.name}" '
-            f'transform="translate({_fmt(layer.x)} {_fmt(layer.y)})">'
-            f"{_inner_svg(layer.svg)}</g>"
+            f'<g data-layer-id="{_attr(layer.id)}" data-layer-name="{_attr(layer.name)}" '
+            f'transform="{_layer_transform(layer)}">'
+            f"{_layer_body(layer)}</g>"
         )
     return _svg_document(comp.page["width"], comp.page["height"], "\n".join(body))
 
 
 def layer_bound_svg(layer: CompositionLayer) -> str:
-    return _svg_document(layer.width, layer.height, _inner_svg(layer.svg))
+    bounds = effective_bounds(layer)
+    body = _layer_body(layer)
+    s = float(layer.scale or 1)
+    crop = layer.crop
+    ox = float(crop.get("x", 0) or 0) if crop else 0.0
+    oy = float(crop.get("y", 0) or 0) if crop else 0.0
+    # Map content coords -> the (scaled, cropped) document: scale then shift the
+    # crop origin to (0,0). transform list applies right-to-left.
+    parts = []
+    if ox or oy:
+        parts.append(f"translate({_fmt(-s * ox)} {_fmt(-s * oy)})")
+    if s != 1:
+        parts.append(f"scale({_fmt(s)})")
+    if parts:
+        body = f'<g transform="{" ".join(parts)}">{body}</g>'
+    return _svg_document(bounds["width"], bounds["height"], body)
 
 
 def safe_name(value: str) -> str:
