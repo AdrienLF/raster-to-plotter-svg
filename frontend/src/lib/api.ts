@@ -48,8 +48,9 @@ function normalizeReordering(value: any) {
 
 export const api = {
   async boot() {
-    const [list, area, pens, settings, plotJob] = await Promise.all([
+    const [list, gens, area, pens, settings, plotJob] = await Promise.all([
       jget("/api/pfm/list"),
+      jget("/api/generate/list"),
       jget("/api/area"),
       jget("/api/pens"),
       jget("/api/settings"),
@@ -57,6 +58,7 @@ export const api = {
     ]);
     studio.pfms = list.pfms;
     studio.backend = list.backend;
+    studio.generators = gens.generators;
     studio.area = area.area;
     studio.presets = area.presets;
     studio.drawingSet = pens.drawing_set;
@@ -64,7 +66,32 @@ export const api = {
     studio.settings = { ...settings, reordering: normalizeReordering(settings.reordering) };
     studio.plotJob = plotJob;
     await this.selectPfm(studio.pfmId);
+    await this.selectGenerator(studio.generatorId);
     await this.refreshVersions();
+  },
+
+  async selectGenerator(id: string) {
+    studio.generatorId = id;
+    const sch = await jget(`/api/generate/${id}/schema`);
+    studio.genSchema = sch.params;
+    const keep: Record<string, any> = {};
+    for (const p of sch.params) keep[p.name] = studio.genParams[p.name] ?? p.default;
+    studio.genParams = keep;
+  },
+
+  async generate() {
+    studio.processing = true;
+    studio.status = "Generating";
+    studio.progress = 0;
+    await this.savePens();
+    await jpost("/api/generate", {
+      generator_id: studio.generatorId,
+      params: studio.genParams,
+    }).catch((e) => {
+      studio.processing = false;
+      studio.status = "Error";
+      pushLog("Generate error: " + e.message);
+    });
   },
 
   async selectPfm(id: string) {

@@ -28,6 +28,12 @@ class Studio {
   schema = $state<Param[]>([]);
   params = $state<Record<string, any>>({});
 
+  // generate step
+  generators = $state<{ id: string; name: string }[]>([]);
+  generatorId = $state("spokes_and_circles");
+  genSchema = $state<Param[]>([]);
+  genParams = $state<Record<string, any>>({});
+
   // drawing area
   area = $state<AreaT | null>(null);
   presets = $state<Record<string, [number, number]>>({});

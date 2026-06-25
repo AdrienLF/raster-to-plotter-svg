@@ -81,6 +81,35 @@ def to_svg_layers(drawing: Drawing) -> list[tuple[str, str]]:
     return out
 
 
+def lines_to_svg(lines, w_mm: float, h_mm: float,
+                 colour: str = "#000000", stroke_mm: float = 0.3) -> str:
+    """SVG for a flat list of polylines already in page millimetres (generators)."""
+    body = []
+    for line in lines:
+        if len(line) < 2:
+            continue
+        d = " ".join(("M" if i == 0 else "L") + f"{_fmt(x)},{_fmt(y)}"
+                     for i, (x, y) in enumerate(line))
+        body.append(f'<path d="{d}"/>')
+    group = (
+        f'<g fill="none" stroke="{colour}" stroke-width="{_fmt(stroke_mm)}" '
+        f'stroke-linecap="round" stroke-linejoin="round">\n' + "\n".join(body) + "\n</g>"
+    )
+    return (
+        f'<svg {_SVG_NS} width="{_fmt(w_mm)}mm" height="{_fmt(h_mm)}mm" '
+        f'viewBox="0 0 {_fmt(w_mm)} {_fmt(h_mm)}">\n{group}\n</svg>'
+    )
+
+
+def lines_length_mm(lines) -> float:
+    import math
+    total = 0.0
+    for line in lines:
+        for (x0, y0), (x1, y1) in zip(line, line[1:]):
+            total += math.hypot(x1 - x0, y1 - y0)
+    return total
+
+
 def estimate_path_length_mm(drawing: Drawing) -> float:
     """Rough pen-down travel estimate in mm (for the status bar)."""
     import math

@@ -13,6 +13,7 @@ from engine.canvas import DrawingArea, AREA_PRESETS
 from engine.pens import DrawingSet, PEN_LIBRARIES, library_pens
 from engine.params import schema_json, validate
 from engine.pfm import REGISTRY, get as get_pfm, list_pfms
+from engine.generate import GENERATORS, get_generator, list_generators
 from engine.project import get_or_create
 
 app = Flask(__name__)
@@ -1265,6 +1266,56 @@ def api_process():
     _process_thread.start()
     return jsonify(ok=True)
 
+# ── Generate step (rule-based drawing, no input image) ──────────────────────────
+
+def _generate_worker(gid, params, seed):
+    global _drawing, _current_svg
+    try:
+        emit('proc', state='running', pfm=gid)
+        gen = get_generator(gid)
+        vals = validate(gen['params'], params)
+        emit('proc', state='progress', stage='generating', frac=0.3)
+        lines, w_mm, h_mm = gen['fn'](vals, seed=seed)
+        pen = _project.drawing_set.active()[0]
+        svg = svg_io.lines_to_svg(lines, w_mm, h_mm, colour=pen.colour, stroke_mm=pen.stroke_mm)
+        _drawing = None                       # generators output flat polylines, not a Drawing
+        _current_svg = svg.encode()           # so /api/plot and /api/export work
+        emit('proc', state='done',
+             svg=svg, total=len(lines),
+             length_mm=round(svg_io.lines_length_mm(lines)),
+             backend='generator',
+             per_pen=[{'name': pen.name, 'colour': pen.colour, 'count': len(lines)}])
+    except Exception as exc:
+        emit('proc', state='error', msg=str(exc))
+
+@app.route('/api/generate/list')
+def api_generate_list():
+    return jsonify(generators=list_generators())
+
+@app.route('/api/generate/<gid>/schema')
+def api_generate_schema(gid):
+    if gid not in GENERATORS:
+        return jsonify(error='Unknown generator'), 404
+    g = get_generator(gid)
+    return jsonify(id=g['id'], name=g['name'], params=schema_json(g['params']))
+
+@app.route('/api/generate', methods=['POST'])
+def api_generate():
+    global _process_thread
+    data = request.json or {}
+    gid = data.get('generator_id')
+    if gid not in GENERATORS:
+        return jsonify(error='Unknown generator'), 400
+    if _process_thread and _process_thread.is_alive():
+        return jsonify(error='Already busy'), 409
+    params = data.get('params') or {}
+    seed = int(data.get('seed', params.get('seed', 0)) or 0)
+    _clear_last_proc_events()
+    _process_thread = threading.Thread(
+        target=_generate_worker, args=(gid, params, seed), daemon=True)
+    _process_thread.start()
+    return jsonify(ok=True)
+
 @app.route('/api/area', methods=['GET', 'POST'])
 def api_area():
     if request.method == 'POST':
@@ -1344,6 +1395,10 @@ def api_version_thumb(vid):
 @app.route('/api/export')
 def api_export():
     if _drawing is None:
+        # generator output (or uploaded SVG): export the current SVG as-is
+        if _current_svg is not None:
+            return send_file(io.BytesIO(_current_svg), mimetype='image/svg+xml',
+                             as_attachment=True, download_name='plot.svg')
         return jsonify(error='Nothing to export'), 400
     if request.args.get('split') == '1':
         buf = io.BytesIO()

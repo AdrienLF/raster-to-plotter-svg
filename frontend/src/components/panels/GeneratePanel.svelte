@@ -1,39 +1,62 @@
 <script lang="ts">
-  // Placeholder for the upcoming generative-drawing step: rule-based geometry
-  // (circles, spokes, etc.) drawn directly onto the canvas.
+  import { studio } from "../../lib/state.svelte";
+  import { api } from "../../lib/api";
+  import ParamControl from "../ParamControl.svelte";
+
+  // group params by their `group` field, preserving order
+  const groups = $derived.by(() => {
+    const m = new Map<string, typeof studio.genSchema>();
+    for (const p of studio.genSchema) {
+      if (!m.has(p.group)) m.set(p.group, []);
+      m.get(p.group)!.push(p);
+    }
+    return [...m.entries()];
+  });
+
+  async function onSelect(e: Event) {
+    await api.selectGenerator((e.target as HTMLSelectElement).value);
+  }
 </script>
 
-<div class="generate col">
-  <p class="lead">Generative drawing</p>
-  <p class="muted">
-    Build a drawing from rules instead of an image — circles, spokes, radial and
-    grid patterns, and more. Coming soon.
-  </p>
-  <ul class="muted">
-    <li>Place primitives (circles, lines, spokes)</li>
-    <li>Drive size / spacing / count by rules</li>
-    <li>Combine with Path Finding output</li>
-  </ul>
+<div class="col">
+  <select class="gen-select" value={studio.generatorId} onchange={onSelect}>
+    {#each studio.generators as g (g.id)}
+      <option value={g.id}>{g.name}</option>
+    {/each}
+  </select>
+
+  <button class="primary gen" disabled={studio.processing} onclick={() => api.generate()}>
+    {studio.processing ? "Generating…" : "✦ Generate"}
+  </button>
+
+  {#each groups as [group, params] (group)}
+    <div class="group">
+      <div class="group-title">{group}</div>
+      {#each params as p (p.name)}
+        <ParamControl param={p} bind:value={studio.genParams[p.name]} />
+      {/each}
+    </div>
+  {/each}
 </div>
 
 <style>
-  .generate {
-    gap: 8px;
+  .gen-select {
+    width: 100%;
   }
-  .lead {
-    margin: 0;
-    font-weight: 600;
-    color: var(--text);
+  .gen {
+    width: 100%;
+    padding: 6px;
   }
-  p {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.4;
+  .group {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+    margin-top: 4px;
   }
-  ul {
-    margin: 4px 0 0;
-    padding-left: 18px;
-    font-size: 12px;
-    line-height: 1.6;
+  .group-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin-bottom: 6px;
   }
 </style>
