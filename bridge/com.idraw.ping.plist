@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Tailscale keepalive ping for the iDraw wireless bridge.
+
+  Sends a ping every 10 seconds to pi-atelier so the Tailscale UDP path stays
+  warm. Without this, Tailscale can let the path go idle between G-code commands,
+  causing 300ms+ latency spikes that trigger serial timeouts in the iDraw extension.
+
+  Install alongside com.idraw.bridge.plist:
+    cp bridge/com.idraw.ping.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.idraw.ping.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.idraw.ping</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/sbin/ping</string>
+        <string>-i</string>
+        <string>10</string>
+        <string>-q</string>
+        <string>100.92.241.24</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/dev/null</string>
+    <key>StandardErrorPath</key>
+    <string>/dev/null</string>
+</dict>
+</plist>
