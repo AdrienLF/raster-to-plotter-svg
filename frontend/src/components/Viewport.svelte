@@ -62,6 +62,16 @@
     h: Math.min(A4_PORTRAIT.h, page.h),
   }));
 
+  const sourceMode = $derived(!!studio.imageUrl && (studio.regionSelecting || !studio.composition.layers.length));
+  const sourceRect = $derived.by(() => {
+    const iw = studio.imageW || page.w;
+    const ih = studio.imageH || page.h;
+    const scale = Math.min(page.w / iw, page.h / ih);
+    const w = iw * scale;
+    const h = ih * scale;
+    return { x: (page.w - w) / 2, y: (page.h - h) / 2, w, h, scale };
+  });
+
   export function fit() {
     if (!vw || !vh) return;
     const s = Math.min(vw / (page.w * PX_PER_MM), vh / (page.h * PX_PER_MM)) * 0.9;
@@ -124,6 +134,30 @@
     };
   }
 
+  function clientToSource(e: PointerEvent) {
+    const p = clientToPage(e);
+    const r = sourceRect;
+    if (p.x < r.x || p.y < r.y || p.x > r.x + r.w || p.y > r.y + r.h) return null;
+    return {
+      x: Math.round((p.x - r.x) / r.scale),
+      y: Math.round((p.y - r.y) / r.scale),
+    };
+  }
+
+  function regionDown(e: PointerEvent) {
+    if (!studio.regionSelecting) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const p = clientToSource(e);
+    if (!p) return;
+    if (e.button === 2 || e.altKey) {
+      studio.regionNegativePoints = [...studio.regionNegativePoints, p];
+    } else {
+      studio.regionPositivePoints = [...studio.regionPositivePoints, p];
+    }
+    void api.predictRegion();
+  }
+
   function startPlacement(e: PointerEvent, layerId: string) {
     const layer = studio.composition.layers.find((item) => item.id === layerId);
     if (!layer) return;
@@ -133,7 +167,9 @@
       studio.composition.selected_layer_id = layerId;
       void api.selectLayer(layerId);
     }
-    if (studio.step !== "composition") return;
+    // Layers are selectable/movable in every editing step now, except while
+    // picking an image region (the source overlay owns the pointer there).
+    if (studio.step === "plot" || studio.regionSelecting) return;
     placing = true;
     placementLayerId = layerId;
     placementPointer = e.currentTarget as HTMLElement;
@@ -192,6 +228,23 @@
 
   function round1(value: number) {
     return Math.round(value * 10) / 10;
+  }
+
+  function displayMode(layer: CompositionLayerT) {
+    return layer.display_mode ?? "pathfinding";
+  }
+
+  function layerShowsRaster(layer: CompositionLayerT) {
+    return !!layer.region_id && (!layer.pathfinding_style?.enabled || displayMode(layer) === "raster" || displayMode(layer) === "both");
+  }
+
+  function layerShowsPaths(layer: CompositionLayerT) {
+    return (layer.pathfinding_style?.enabled ?? true) && displayMode(layer) !== "raster";
+  }
+
+  function layerRasterUrl(layer: CompositionLayerT) {
+    const stamp = layer.pathfinding_style?.cache?.generated_at ?? layer.region_id ?? layer.id;
+    return `/api/composition/layers/${layer.id}/raster?v=${encodeURIComponent(String(stamp))}`;
   }
 
   // ── Mask drawing ──────────────────────────────────────────────────────────
@@ -522,6 +575,34 @@
     return `path("${m.d.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (n) => String(+n * s))}")`;
   }
 
+  // ── Occlusion preview ─────────────────────────────────────────────────────
+  // Mirrors engine.composition._rect_to_page / _rect_to_layer / _upper_occlusion_masks
+  // so the live canvas matches the exported (occluded) SVG.
+  type Rect = { x: number; y: number; width: number; height: number };
+
+  function rectToPage(layer: CompositionLayerT, r: Rect): Rect {
+    const s = layer.scale || 1;
+    return { x: layer.x + s * r.x, y: layer.y + s * r.y, width: s * r.width, height: s * r.height };
+  }
+  function rectToLayer(layer: CompositionLayerT, r: Rect): Rect {
+    const s = layer.scale || 1;
+    return { x: (r.x - layer.x) / s, y: (r.y - layer.y) / s, width: r.width / s, height: r.height / s };
+  }
+
+  // Occluder rects (in `layer`'s local mm) from visible layers stacked above it.
+  function occludersForLayer(layer: CompositionLayerT): Rect[] {
+    const visible = studio.composition.layers.filter((l) => l.visible);
+    const index = visible.indexOf(layer);
+    if (index < 0) return [];
+    const out: Rect[] = [];
+    for (const upper of visible.slice(index + 1)) {
+      const m = upper.occlusion_mask;
+      if (!upper.occlude_below || !m || m.type !== "rect") continue;
+      out.push(rectToLayer(layer, rectToPage(upper, m)));
+    }
+    return out;
+  }
+
   // Map a layer-local path `d` into page-mm coordinates for overlay outlines.
   function pathToPage(d: string, layer: CompositionLayerT): string {
     const s = layer.scale || 1;
@@ -557,7 +638,42 @@
       style:height={`${page.h * PX_PER_MM}px`}
       style:background={page.canvas}
     >
-      {#if studio.composition.layers.length}
+      {#if sourceMode}
+        <div
+          class="source-frame"
+          style:left={`${sourceRect.x * PX_PER_MM}px`}
+          style:top={`${sourceRect.y * PX_PER_MM}px`}
+          style:width={`${sourceRect.w * PX_PER_MM}px`}
+          style:height={`${sourceRect.h * PX_PER_MM}px`}
+        >
+          <img class="src" src={studio.imageUrl!} alt="source" />
+          {#if studio.regionDraftMask}
+            <img class="region-mask-preview" src={studio.regionDraftMask} alt="" />
+          {/if}
+          {#each studio.regionPositivePoints as point}
+            <span
+              class="region-point positive"
+              style:left={`${point.x * sourceRect.scale * PX_PER_MM}px`}
+              style:top={`${point.y * sourceRect.scale * PX_PER_MM}px`}
+            ></span>
+          {/each}
+          {#each studio.regionNegativePoints as point}
+            <span
+              class="region-point negative"
+              style:left={`${point.x * sourceRect.scale * PX_PER_MM}px`}
+              style:top={`${point.y * sourceRect.scale * PX_PER_MM}px`}
+            ></span>
+          {/each}
+        </div>
+        {#if studio.regionSelecting}
+          <div
+            class="region-select-overlay"
+            onpointerdown={regionDown}
+            oncontextmenu={(e) => e.preventDefault()}
+            role="presentation"
+          ></div>
+        {/if}
+      {:else if studio.composition.layers.length}
         <div
           class="guide a4"
           style:width={`${a4Guide.w * PX_PER_MM}px`}
@@ -598,7 +714,22 @@
               style:height={`${layer.height * (layer.scale || 1) * PX_PER_MM}px`}
               style:clip-path={maskClip(layer)}
             >
-              {@html layer.svg}
+              {#if layerShowsRaster(layer)}
+                <img class="layer-raster" src={layerRasterUrl(layer)} alt="" />
+              {/if}
+              {#if layerShowsPaths(layer)}
+                {@html layer.svg}
+              {/if}
+              {#each occludersForLayer(layer) as r, i (i)}
+                <div
+                  class="knockout"
+                  style:left={`${r.x * (layer.scale || 1) * PX_PER_MM}px`}
+                  style:top={`${r.y * (layer.scale || 1) * PX_PER_MM}px`}
+                  style:width={`${r.width * (layer.scale || 1) * PX_PER_MM}px`}
+                  style:height={`${r.height * (layer.scale || 1) * PX_PER_MM}px`}
+                  style:background={page.canvas}
+                ></div>
+              {/each}
             </div>
           </div>
         {/each}
@@ -733,8 +864,6 @@
             {/if}
           </svg>
         {/if}
-      {:else if studio.imageUrl}
-        <img class="src" src={studio.imageUrl} alt="source" />
       {:else}
         <div class="placeholder">Import an image to begin</div>
       {/if}
@@ -856,6 +985,20 @@
     position: absolute;
     pointer-events: none;
   }
+  .knockout {
+    position: absolute;
+    pointer-events: none;
+  }
+  .layer-raster {
+    display: block;
+    height: 100%;
+    left: 0;
+    object-fit: fill;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
   .overlay {
     position: absolute;
     left: 0;
@@ -921,11 +1064,52 @@
     height: 100%;
     display: block;
   }
+  .source-frame {
+    position: absolute;
+    overflow: hidden;
+    background: #fff;
+  }
   .src {
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: fill;
     opacity: 0.85;
+    display: block;
+    pointer-events: none;
+  }
+  .region-mask-preview {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    opacity: 0.38;
+    mix-blend-mode: multiply;
+    filter: sepia(1) saturate(6) hue-rotate(145deg);
+    pointer-events: none;
+  }
+  .region-select-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .region-point {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75);
+    pointer-events: none;
+  }
+  .region-point.positive {
+    background: #21c46b;
+  }
+  .region-point.negative {
+    background: #f04c5e;
   }
   .placeholder {
     position: absolute;

@@ -1,5 +1,5 @@
 import { studio, pushLog } from "./state.svelte";
-import type { MaskShape, Param } from "./types";
+import type { CompositionLayerT, MaskShape, Param, PathfindingStyleT, SegmentationPromptT } from "./types";
 
 async function jget(url: string) {
   const r = await fetch(url);
@@ -20,6 +20,18 @@ function paramDefaults(schema: Param[]): Record<string, any> {
   const out: Record<string, any> = {};
   for (const p of schema) out[p.name] = p.default;
   return out;
+}
+
+function layerStyle(layer: CompositionLayerT | null | undefined) {
+  const style = (layer?.pathfinding_style ?? {}) as Partial<PathfindingStyleT>;
+  return {
+    enabled: style.enabled ?? true,
+    pfm_id: style.pfm_id ?? studio.pfmId,
+    params: { ...(style.params ?? {}) },
+    status: style.status ?? "stale",
+    error: style.error ?? "",
+    cache: { ...(style.cache ?? {}) },
+  };
 }
 
 function normalizeReordering(value: any) {
@@ -60,7 +72,7 @@ function flushGenerate() {
 
 export const api = {
   async boot() {
-    const [list, gens, area, pens, settings, plotJob, composition, projects] = await Promise.all([
+    const [list, gens, area, pens, settings, plotJob, composition, projects, regions, segStatus] = await Promise.all([
       jget("/api/pfm/list"),
       jget("/api/generate/list"),
       jget("/api/area"),
@@ -69,6 +81,8 @@ export const api = {
       jget("/api/plot/job"),
       jget("/api/composition"),
       jget("/api/projects"),
+      jget("/api/regions"),
+      jget("/api/segmentation/status"),
     ]);
     studio.pfms = list.pfms;
     studio.backend = list.backend;
@@ -81,6 +95,8 @@ export const api = {
     studio.plotJob = plotJob;
     this.applyComposition(composition);
     this.applyProject(projects);
+    this.applyRegions(regions);
+    studio.segmentationStatus = segStatus;
     await this.selectPfm(studio.pfmId);
     await this.selectGenerator(studio.generatorId);
     await this.refreshVersions();
@@ -92,6 +108,9 @@ export const api = {
       studio.currentProject = { id: payload.current.id, name: payload.current.name };
       studio.imageName = payload.current.image_name || "";
       studio.imageUrl = payload.current.image_url ?? null;
+      studio.imageW = payload.current.image_width ?? studio.imageW;
+      studio.imageH = payload.current.image_height ?? studio.imageH;
+      studio.selectedRegionId = payload.current.selected_region_id ?? studio.selectedRegionId;
     }
   },
 
@@ -125,6 +144,13 @@ export const api = {
   applyComposition(payload: any) {
     if (payload?.composition) studio.composition = payload.composition;
     if (payload && "svg" in payload) studio.previewSvg = payload.svg;
+  },
+
+  applyRegions(payload: any) {
+    if (payload?.regions) studio.regions = payload.regions;
+    if (payload && "selected_region_id" in payload) {
+      studio.selectedRegionId = payload.selected_region_id ?? null;
+    }
   },
 
   async refreshComposition() {
@@ -167,6 +193,15 @@ export const api = {
   // Clear the target so the next generate / upload creates a new layer.
   async newLayer() {
     const j = await jpost("/api/composition/new-layer");
+    this.applyComposition(j);
+    await this.refreshEstimate(true);
+    return j;
+  },
+
+  // Create a concrete, selectable empty path-finding layer (Photoshop-style
+  // "new layer" you then apply an algorithm to via the Path Finding window).
+  async addPathfindingLayer(region_id?: string | null) {
+    const j = await jpost("/api/composition/add-layer", { region_id: region_id ?? undefined });
     this.applyComposition(j);
     await this.refreshEstimate(true);
     return j;
@@ -232,6 +267,85 @@ export const api = {
     studio.params = keep;
   },
 
+  async loadLayerStyleSchema(pfmId: string) {
+    const sch = await jget(`/api/pfm/${pfmId}/schema`);
+    studio.layerStyleSchema = sch.params;
+    return sch.params as Param[];
+  },
+
+  async patchLayerStyle(layerId: string, patch: Record<string, any>) {
+    const layer = studio.composition.layers.find((item) => item.id === layerId);
+    const next = { ...layerStyle(layer), ...patch };
+    return this.patchLayer(layerId, { pathfinding_style: next });
+  },
+
+  clearRegionDraft() {
+    studio.regionDraftMask = null;
+    studio.regionDraftBbox = null;
+    studio.regionPositivePoints = [];
+    studio.regionNegativePoints = [];
+  },
+
+  async selectRegion(id: string) {
+    studio.selectedRegionId = id || null;
+  },
+
+  async predictRegion(prompt?: SegmentationPromptT) {
+    const body = prompt ?? {
+      positive_points: studio.regionPositivePoints,
+      negative_points: studio.regionNegativePoints,
+    };
+    if (!body.positive_points.length) {
+      pushLog("Add a positive region click first");
+      return null;
+    }
+    studio.regionPredicting = true;
+    try {
+      const j = await jpost("/api/segmentation/predict", body);
+      studio.regionDraftMask = j.mask_png;
+      studio.regionDraftBbox = j.bbox_px ?? null;
+      studio.regionPositivePoints = j.positive_points ?? body.positive_points;
+      studio.regionNegativePoints = j.negative_points ?? body.negative_points;
+      return j;
+    } catch (e) {
+      pushLog("Region prediction error: " + (e instanceof Error ? e.message : String(e)));
+      return null;
+    } finally {
+      studio.regionPredicting = false;
+    }
+  },
+
+  async saveRegion(name = "Region", invert = false) {
+    if (!studio.regionDraftMask) {
+      pushLog("No region mask to save");
+      return null;
+    }
+    const j = await jpost("/api/regions", {
+      name,
+      mask_png: studio.regionDraftMask,
+      bbox_px: studio.regionDraftBbox,
+      positive_points: studio.regionPositivePoints,
+      negative_points: studio.regionNegativePoints,
+      invert,
+    });
+    this.applyRegions(j);
+    this.clearRegionDraft();
+    studio.regionSelecting = false;
+    pushLog(`Saved region ${j.region?.name ?? name}`);
+    return j.region;
+  },
+
+  async renameRegion(id: string, name: string) {
+    const j = await jpost(`/api/regions/${id}`, { name }, "PATCH");
+    this.applyRegions(j);
+  },
+
+  async deleteRegion(id: string) {
+    const j = await jpost(`/api/regions/${id}`, undefined, "DELETE");
+    this.applyRegions(j);
+    if (studio.selectedRegionId === id) studio.selectedRegionId = j.selected_region_id ?? null;
+  },
+
   async uploadImage(file: File) {
     const fd = new FormData();
     fd.append("file", file);
@@ -242,6 +356,9 @@ export const api = {
     studio.imageName = j.name;
     studio.imageW = j.width;
     studio.imageH = j.height;
+    studio.regions = [];
+    studio.selectedRegionId = null;
+    this.clearRegionDraft();
     pushLog(`Loaded image ${j.name} (${j.width}×${j.height})`);
   },
 
@@ -294,11 +411,50 @@ export const api = {
       params: studio.params,
       area: studio.area,
       drawing_set: studio.drawingSet,
+      region_id: studio.selectedRegionId || undefined,
     }).catch((e) => {
       studio.processing = false;
       studio.status = "Error";
       pushLog("Process error: " + e.message);
     });
+  },
+
+  async generateLayerPathfinding(id: string) {
+    const layer = studio.composition.layers.find((item) => item.id === id);
+    if (!layer) return;
+    if (!studio.imageUrl) {
+      pushLog("Load an image first");
+      return;
+    }
+    const style = layerStyle(layer);
+    studio.processing = true;
+    studio.status = "Generating layer";
+    studio.progress = 0;
+    try {
+      await this.saveArea();
+      await this.savePens();
+      const j = await jpost(`/api/composition/layers/${id}/pathfinding/generate`, {
+        pfm_id: style.pfm_id,
+        params: style.params,
+        region_id: layer.region_id,
+        enabled: style.enabled,
+        display_mode: layer.display_mode,
+        area: studio.area,
+        drawing_set: studio.drawingSet,
+      });
+      this.applyComposition(j);
+      studio.status = "Ready";
+      studio.progress = 1;
+      await this.refreshEstimate(true);
+      pushLog(`Generated layer ${layer.name}`);
+      return j;
+    } catch (e) {
+      studio.status = "Error";
+      pushLog("Layer style error: " + (e instanceof Error ? e.message : String(e)));
+      return null;
+    } finally {
+      studio.processing = false;
+    }
   },
 
   async refreshVersions() {

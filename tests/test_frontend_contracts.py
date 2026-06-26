@@ -45,6 +45,94 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("alignPlacement(", viewport)
         self.assertNotIn("clampPlacement", viewport)
 
+    def test_region_types_and_state_exist(self):
+        types = (ROOT / "frontend/src/lib/types.ts").read_text()
+        state = (ROOT / "frontend/src/lib/state.svelte.ts").read_text()
+
+        self.assertIn("export interface RegionT", types)
+        self.assertIn("export interface SegmentationPromptT", types)
+        self.assertIn("regions = $state<RegionT[]>([])", state)
+        self.assertIn("selectedRegionId = $state<string | null>(null)", state)
+        self.assertIn("regionDraftMask = $state<string | null>(null)", state)
+
+    def test_process_sends_selected_region_id(self):
+        api_ts = (ROOT / "frontend/src/lib/api.ts").read_text()
+        match = re.search(
+            r"async process\(\) \{(?P<body>.*?)\n  \},",
+            api_ts,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(match)
+        self.assertIn("region_id: studio.selectedRegionId || undefined", match.group("body"))
+
+    def test_path_finding_window_exposes_region_controls(self):
+        # Region creation lives in the unified floating Path Finding window now,
+        # not a left-dock panel.
+        panel = (ROOT / "frontend/src/components/panels/LayerStylePanel.svelte").read_text()
+
+        self.assertIn("Create AI region", panel)
+        self.assertIn("Save region", panel)
+        self.assertIn("selectedRegionId", panel)
+        self.assertIn("invertRegion", panel)
+
+    def test_viewport_supports_source_region_selection(self):
+        viewport = (ROOT / "frontend/src/components/Viewport.svelte").read_text()
+
+        self.assertIn("region-select-overlay", viewport)
+        self.assertIn("api.predictRegion", viewport)
+        self.assertIn("regionDraftMask", viewport)
+        self.assertIn("e.button === 2 || e.altKey", viewport)
+
+    def test_layer_style_panel_contract_exists(self):
+        app = (ROOT / "frontend/src/App.svelte").read_text()
+        panel = (ROOT / "frontend/src/components/panels/LayerStylePanel.svelte").read_text()
+        types = (ROOT / "frontend/src/lib/types.ts").read_text()
+        state = (ROOT / "frontend/src/lib/state.svelte.ts").read_text()
+        api_ts = (ROOT / "frontend/src/lib/api.ts").read_text()
+
+        self.assertIn("LayerStylePanel", app)
+        self.assertIn("layerStyleOpen = $state(false)", state)
+        self.assertIn("layerStyleSchema = $state<Param[]>([])", state)
+        self.assertIn("display_mode", types)
+        self.assertIn("pathfinding_style", types)
+        self.assertIn("occlude_below", types)
+        self.assertIn("/pathfinding/generate", api_ts)
+        self.assertIn("generateLayerPathfinding", api_ts)
+        self.assertIn("display_mode", panel)
+        self.assertIn("pathfinding_style", panel)
+        self.assertIn("occlude_below", panel)
+
+    def test_composition_panel_opens_layer_style_and_toggles_occlusion(self):
+        panel = (ROOT / "frontend/src/components/panels/CompositionPanel.svelte").read_text()
+
+        self.assertIn("openLayerStyle", panel)
+        self.assertIn("studio.layerStyleOpen = true", panel)
+        self.assertIn("occlude_below", panel)
+
+    def test_layers_panel_shows_applied_algorithm(self):
+        panel = (ROOT / "frontend/src/components/panels/CompositionPanel.svelte").read_text()
+
+        # The Photoshop-style layers list surfaces which PFM is baked into a layer.
+        self.assertIn("appliedAlgo", panel)
+        self.assertIn("pathfinding_style", panel)
+
+    def test_layers_panel_is_always_visible(self):
+        app = (ROOT / "frontend/src/App.svelte").read_text()
+
+        # Layers panel is rendered outside the per-step branches (not step-gated),
+        # and the path-finding controls are no longer a left-dock panel.
+        self.assertIn('<Panel title="Layers"><CompositionPanel /></Panel>', app)
+        self.assertNotIn("PathFindingPanel", app)
+
+    def test_viewport_renders_live_occlusion(self):
+        viewport = (ROOT / "frontend/src/components/Viewport.svelte").read_text()
+
+        # Occlusion is composited live via cheap opaque knockout rects (clipping a
+        # huge stippling SVG with clip-path was too slow).
+        self.assertIn("occludersForLayer", viewport)
+        self.assertIn("knockout", viewport)
+
 
 if __name__ == "__main__":
     unittest.main()

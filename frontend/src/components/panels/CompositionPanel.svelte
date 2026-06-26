@@ -1,8 +1,17 @@
 <script lang="ts">
   import { api } from "../../lib/api";
   import { anchorOffset, effectiveBounds, studio } from "../../lib/state.svelte";
+  import type { CompositionLayerT } from "../../lib/types";
 
   const layersTopFirst = $derived([...studio.composition.layers].reverse());
+
+  // Which path-finding algorithm (if any) is baked into a layer, and its status.
+  function appliedAlgo(layer: CompositionLayerT) {
+    const pid = layer.pathfinding_style?.pfm_id;
+    const hasEffect = layer.kind === "pathfinding" && !!pid && !!layer.source?.pfm_id;
+    const name = studio.pfms.find((p) => p.id === pid)?.name ?? pid ?? "";
+    return { name: hasEffect ? name : "", status: layer.pathfinding_style?.status ?? "" };
+  }
   const selectedBounds = $derived(
     studio.selectedLayer ? effectiveBounds(studio.selectedLayer) : null,
   );
@@ -52,10 +61,29 @@
     await api.deleteLayer(id);
   }
 
+  async function openLayerStyle(id: string) {
+    await api.selectLayer(id);
+    studio.layerStyleOpen = true;
+    const layer = studio.composition.layers.find((item) => item.id === id);
+    if (layer) void api.loadLayerStyleSchema(layer.pathfinding_style?.pfm_id || studio.pfmId);
+  }
+
+  async function toggleOcclusion(id: string, occlude_below: boolean) {
+    await api.patchLayer(id, { occlude_below });
+  }
+
   // Start a fresh layer: clear the target and jump to Generate to fill it.
   async function addLayer() {
     await api.newLayer();
     studio.step = "generate";
+  }
+
+  // Create an empty path-finding layer and open the Path Finding window on it.
+  async function addPfLayer() {
+    await api.addPathfindingLayer(studio.selectedRegionId);
+    const id = studio.composition.selected_layer_id;
+    studio.layerStyleOpen = true;
+    if (id) void api.loadLayerStyleSchema(studio.selectedLayer?.pathfinding_style?.pfm_id || studio.pfmId);
   }
 
   function setTool(mode: "rect" | "ellipse" | "pen") {
@@ -77,7 +105,10 @@
 
 <div class="composition col">
   <div class="topbar">
-    <button class="add" onclick={addLayer}>＋ Add layer</button>
+    <div class="adds">
+      <button class="add" onclick={addPfLayer}>＋ Path finding</button>
+      <button class="add" onclick={addLayer}>＋ Generator</button>
+    </div>
     <label class="bounds-toggle">
       <input type="checkbox" bind:checked={studio.showLayerBounds} />
       <span>Show bounds</span>
@@ -87,6 +118,7 @@
   {#if studio.composition.layers.length}
     <div class="layers">
       {#each layersTopFirst as layer (layer.id)}
+        {@const algo = appliedAlgo(layer)}
         <div
           class="layer"
           class:active={layer.id === studio.composition.selected_layer_id}
@@ -100,6 +132,13 @@
           <button class="pick" onclick={() => api.selectLayer(layer.id)}>
             <span>{layer.name}</span>
             <em>{Math.round(effectiveBounds(layer).width)} x {Math.round(effectiveBounds(layer).height)} mm</em>
+            <em class="algo">
+              {#if algo.name}
+                ⤷ {algo.name}<i class:dirty={algo.status === "stale"}>{algo.status}</i>
+              {:else}
+                ⤷ no path finding
+              {/if}
+            </em>
           </button>
           <input
             class="name"
@@ -108,11 +147,20 @@
             onchange={(e) => rename(layer.id, (e.target as HTMLInputElement).value)}
           />
           <div class="actions">
+            <button title="Path finding" aria-label={`Open ${layer.name} path finding`} onclick={() => openLayerStyle(layer.id)}>Edit</button>
             <button title="Move up" aria-label={`Move ${layer.name} up`} onclick={() => api.moveLayer(layer.id, 1)}>↑</button>
             <button title="Move down" aria-label={`Move ${layer.name} down`} onclick={() => api.moveLayer(layer.id, -1)}>↓</button>
             <button title="Duplicate" aria-label={`Duplicate ${layer.name}`} onclick={() => api.duplicateLayer(layer.id)}>⧉</button>
             <button class="danger-text" title="Delete" aria-label={`Delete ${layer.name}`} onclick={() => remove(layer.id)}>×</button>
           </div>
+          <label class="occlusion">
+            <input
+              type="checkbox"
+              checked={layer.occlude_below}
+              onchange={(e) => toggleOcclusion(layer.id, (e.target as HTMLInputElement).checked)}
+            />
+            <span>Occlude below</span>
+          </label>
         </div>
       {/each}
     </div>
@@ -120,7 +168,7 @@
     <div class="empty">No layers</div>
   {/if}
 
-  {#if studio.selectedLayer && selectedBounds}
+  {#if studio.selectedLayer && selectedBounds && studio.step === "composition"}
     <div class="position">
       <div class="f">
         <label for="layer-x">X</label>
@@ -215,9 +263,24 @@
     justify-content: space-between;
     gap: 8px;
   }
+  .adds {
+    display: flex;
+    gap: 6px;
+  }
   .add {
     padding: 4px 8px;
     font-size: 12px;
+  }
+  .algo {
+    display: block;
+  }
+  .algo i {
+    margin-left: 5px;
+    font-style: normal;
+    color: var(--text-dim);
+  }
+  .algo i.dirty {
+    color: var(--accent);
   }
   .bounds-toggle {
     display: flex;
@@ -273,7 +336,7 @@
   .actions {
     grid-column: 2;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: 1.5fr repeat(4, 1fr);
     gap: 4px;
   }
   .actions button {
@@ -282,6 +345,18 @@
   }
   .danger-text {
     color: var(--danger);
+  }
+  .occlusion {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  .occlusion input {
+    width: auto;
+    margin: 0;
   }
   .position {
     display: grid;

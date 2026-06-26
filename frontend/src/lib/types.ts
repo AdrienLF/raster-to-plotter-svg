@@ -62,6 +62,23 @@ export interface VersionT {
   thumbnail: string;
 }
 
+export interface RegionT {
+  id: string;
+  name: string;
+  mask_path: string;
+  bbox_px: { x: number; y: number; width: number; height: number } | null;
+  positive_points: { x: number; y: number }[];
+  negative_points: { x: number; y: number }[];
+  created_at: number;
+  updated_at: number;
+  preview_path?: string;
+}
+
+export interface SegmentationPromptT {
+  positive_points: { x: number; y: number }[];
+  negative_points: { x: number; y: number }[];
+}
+
 export interface CropRect {
   x: number;
   y: number;
@@ -73,6 +90,17 @@ export type MaskShape =
   | { type: "rect"; x: number; y: number; width: number; height: number }
   | { type: "ellipse"; cx: number; cy: number; rx: number; ry: number }
   | { type: "path"; d: string };
+
+export type LayerDisplayMode = "raster" | "pathfinding" | "both";
+
+export interface PathfindingStyleT {
+  enabled: boolean;
+  pfm_id: string;
+  params: Record<string, any>;
+  status: "clean" | "stale" | "generating" | "error";
+  error?: string;
+  cache?: Record<string, any>;
+}
 
 export interface CompositionLayerT {
   id: string;
@@ -89,6 +117,11 @@ export interface CompositionLayerT {
   crop?: CropRect | null;
   mask?: MaskShape | null;
   scale?: number;
+  region_id?: string | null;
+  display_mode: LayerDisplayMode;
+  occlude_below: boolean;
+  pathfinding_style: PathfindingStyleT;
+  occlusion_mask?: MaskShape | null;
 }
 
 export interface CompositionT {

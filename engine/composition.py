@@ -105,6 +105,11 @@ class CompositionLayer:
     crop: dict | None = None
     mask: dict | None = None
     scale: float = 1.0
+    region_id: str | None = None
+    display_mode: str = "pathfinding"
+    occlude_below: bool = False
+    pathfinding_style: dict = field(default_factory=dict)
+    occlusion_mask: dict | None = None
 
     def to_dict(self, include_svg: bool = False) -> dict:
         data = {
@@ -121,6 +126,11 @@ class CompositionLayer:
             "crop": self.crop,
             "mask": self.mask,
             "scale": self.scale,
+            "region_id": self.region_id,
+            "display_mode": self.display_mode,
+            "occlude_below": self.occlude_below,
+            "pathfinding_style": self.pathfinding_style,
+            "occlusion_mask": self.occlusion_mask,
         }
         if include_svg:
             data["svg"] = self.svg
@@ -143,6 +153,11 @@ class CompositionLayer:
             crop=data.get("crop") or None,
             mask=data.get("mask") or None,
             scale=float(data.get("scale", 1) or 1),
+            region_id=data.get("region_id") or None,
+            display_mode=str(data.get("display_mode") or "pathfinding"),
+            occlude_below=bool(data.get("occlude_below", False)),
+            pathfinding_style=dict(data.get("pathfinding_style") or {}),
+            occlusion_mask=data.get("occlusion_mask") or None,
         )
 
 
@@ -267,12 +282,12 @@ def effective_bounds(layer: CompositionLayer) -> dict:
     }
 
 
-def _layer_body(layer: CompositionLayer) -> str:
+def _layer_body(layer: CompositionLayer, exclude_masks: list[dict] | None = None) -> str:
     """Inner SVG for a layer: raw when unclipped, baked when crop/mask present."""
-    if layer.crop or layer.mask:
+    if layer.crop or layer.mask or exclude_masks:
         from . import layer_clip
 
-        return layer_clip.clipped_layer_body(layer.svg, layer.crop, layer.mask)
+        return layer_clip.clipped_layer_body(layer.svg, layer.crop, layer.mask, exclude_masks)
     return _inner_svg(layer.svg)
 
 
@@ -284,15 +299,50 @@ def _layer_transform(layer: CompositionLayer) -> str:
     return tf
 
 
+def _rect_to_page(layer: CompositionLayer, rect: dict) -> dict:
+    s = float(layer.scale or 1)
+    return {
+        "type": "rect",
+        "x": layer.x + s * float(rect.get("x", 0) or 0),
+        "y": layer.y + s * float(rect.get("y", 0) or 0),
+        "width": s * float(rect.get("width", 0) or 0),
+        "height": s * float(rect.get("height", 0) or 0),
+    }
+
+
+def _rect_to_layer(layer: CompositionLayer, rect: dict) -> dict:
+    s = float(layer.scale or 1)
+    return {
+        "type": "rect",
+        "x": (float(rect.get("x", 0) or 0) - layer.x) / s,
+        "y": (float(rect.get("y", 0) or 0) - layer.y) / s,
+        "width": float(rect.get("width", 0) or 0) / s,
+        "height": float(rect.get("height", 0) or 0) / s,
+    }
+
+
+def _upper_occlusion_masks(visible: list[CompositionLayer], index: int) -> list[dict]:
+    masks: list[dict] = []
+    layer = visible[index]
+    for upper in visible[index + 1:]:
+        if not upper.occlude_below or not upper.occlusion_mask:
+            continue
+        mask = upper.occlusion_mask
+        if mask.get("type") != "rect":
+            continue
+        masks.append(_rect_to_layer(layer, _rect_to_page(upper, mask)))
+    return masks
+
+
 def compose_visible_svg(comp: Composition) -> str:
     body = []
-    for layer in comp.layers:
-        if not layer.visible:
-            continue
+    visible = [layer for layer in comp.layers if layer.visible]
+    for index, layer in enumerate(visible):
+        exclude_masks = _upper_occlusion_masks(visible, index)
         body.append(
             f'<g data-layer-id="{_attr(layer.id)}" data-layer-name="{_attr(layer.name)}" '
             f'transform="{_layer_transform(layer)}">'
-            f"{_layer_body(layer)}</g>"
+            f"{_layer_body(layer, exclude_masks)}</g>"
         )
     return _svg_document(comp.page["width"], comp.page["height"], "\n".join(body))
 

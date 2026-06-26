@@ -11,9 +11,9 @@
   import Viewport from "./components/Viewport.svelte";
   import StatusBar from "./components/StatusBar.svelte";
   import Panel from "./components/Panel.svelte";
-  import PathFindingPanel from "./components/panels/PathFindingPanel.svelte";
   import GeneratePanel from "./components/panels/GeneratePanel.svelte";
   import CompositionPanel from "./components/panels/CompositionPanel.svelte";
+  import LayerStylePanel from "./components/panels/LayerStylePanel.svelte";
   import DrawingAreaPanel from "./components/panels/DrawingAreaPanel.svelte";
   import PensPanel from "./components/panels/PensPanel.svelte";
   import PlotterPanel from "./components/panels/PlotterPanel.svelte";
@@ -60,8 +60,10 @@
   <div class="area-rail"><ToolRail onImport={pickImage} onFit={() => viewport?.fit()} onPlot={() => selectStep("plot")} /></div>
   <div class="area-viewport"><Viewport bind:this={viewport} /></div>
   <div class="area-dock dock scroll">
+    {#if studio.step !== "plot"}
+      <Panel title="Layers"><CompositionPanel /></Panel>
+    {/if}
     {#if studio.step === "pathfinding"}
-      <Panel title="Path Finding"><PathFindingPanel /></Panel>
       <Panel title="Drawing Area" open={false}><DrawingAreaPanel /></Panel>
       <Panel title="Pens"><PensPanel /></Panel>
       <Panel title="Versions"><VersionsPanel /></Panel>
@@ -71,7 +73,6 @@
       <Panel title="Pens"><PensPanel /></Panel>
       <Panel title="Versions" open={false}><VersionsPanel /></Panel>
     {:else if studio.step === "composition"}
-      <Panel title="Layers"><CompositionPanel /></Panel>
       <Panel title="Drawing Area" open={false}><DrawingAreaPanel /></Panel>
       <Panel title="Pens" open={false}><PensPanel /></Panel>
       <Panel title="Versions" open={false}><VersionsPanel /></Panel>
@@ -82,6 +83,8 @@
   </div>
   <div class="area-status"><StatusBar /></div>
 </div>
+
+<LayerStylePanel />
 
 <input
   bind:this={fileInput}

@@ -20,6 +20,7 @@ from .composition import Composition
 from .canvas import DrawingArea
 from .geometry import Drawing
 from .pens import DrawingSet
+from .regions import Region, apply_mask_to_alpha
 from .versioning import Version, render_thumbnail
 
 WORKSPACE = Path.home() / ".plotter_studio"
@@ -35,6 +36,8 @@ class Project:
         self.area = DrawingArea()
         self.drawing_set = DrawingSet()
         self.composition = Composition()
+        self.regions: list[Region] = []
+        self.selected_region_id: str | None = None
         self.pfm_id = "voronoi_stippling"
         self.params: dict[str, Any] = {}
         self.versions: list[Version] = []
@@ -49,6 +52,10 @@ class Project:
         return self.dir / "layers"
 
     @property
+    def regions_dir(self) -> Path:
+        return self.dir / "regions"
+
+    @property
     def image_path(self) -> Path | None:
         return self.dir / self.image_name if self.image_name else None
 
@@ -56,6 +63,7 @@ class Project:
     def ensure_dirs(self) -> None:
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         self.layers_dir.mkdir(parents=True, exist_ok=True)
+        self.regions_dir.mkdir(parents=True, exist_ok=True)
 
     def to_dict(self) -> dict:
         return {
@@ -65,6 +73,8 @@ class Project:
             "area": self.area.to_dict(),
             "drawing_set": self.drawing_set.to_dict(),
             "composition": self.composition.to_dict(),
+            "regions": [r.to_dict() for r in self.regions],
+            "selected_region_id": self.selected_region_id,
             "pfm_id": self.pfm_id,
             "params": self.params,
             "versions": [v.to_dict() for v in self.versions],
@@ -85,6 +95,10 @@ class Project:
             p.area = DrawingArea.from_dict(d.get("area"))
             p.drawing_set = DrawingSet.from_dict(d.get("drawing_set"))
             p.composition = Composition.from_dict(d.get("composition"))
+            p.regions = [Region.from_dict(r) for r in d.get("regions", [])]
+            p.selected_region_id = d.get("selected_region_id")
+            if p.selected_region_id and not p.get_region(p.selected_region_id):
+                p.selected_region_id = None
             for layer in p.composition.layers:
                 layer_path = p.dir / layer.svg_path if layer.svg_path else None
                 if layer_path and layer_path.exists():
@@ -106,9 +120,107 @@ class Project:
                 path.unlink()
         self.save()
 
+    # ── regions ─────────────────────────────────────────────────────────────
+    def get_region(self, region_id: str | None) -> Region | None:
+        if not region_id:
+            return None
+        return next((r for r in self.regions if r.id == region_id), None)
+
+    def add_region(
+        self,
+        name: str,
+        mask,
+        positive_points: list[dict] | None = None,
+        negative_points: list[dict] | None = None,
+        bbox_px: dict | None = None,
+    ) -> Region:
+        self.ensure_dirs()
+        rid = uuid.uuid4().hex[:10]
+        mask_path = f"regions/{rid}.png"
+        (self.dir / mask_path).parent.mkdir(parents=True, exist_ok=True)
+        mask.convert("L").save(self.dir / mask_path)
+        now = time.time()
+        region = Region(
+            id=rid,
+            name=name or "Region",
+            mask_path=mask_path,
+            bbox_px=bbox_px,
+            positive_points=list(positive_points or []),
+            negative_points=list(negative_points or []),
+            created_at=now,
+            updated_at=now,
+        )
+        self.regions.append(region)
+        self.selected_region_id = region.id
+        self.save()
+        return region
+
+    def update_region(self, region_id: str, **changes) -> Region | None:
+        region = self.get_region(region_id)
+        if region is None:
+            return None
+        if "name" in changes:
+            region.name = str(changes["name"] or region.name)
+        if "mask" in changes:
+            mask = changes["mask"]
+            mask.convert("L").save(self.dir / region.mask_path)
+        if "positive_points" in changes:
+            region.positive_points = list(changes["positive_points"] or [])
+        if "negative_points" in changes:
+            region.negative_points = list(changes["negative_points"] or [])
+        if "bbox_px" in changes:
+            region.bbox_px = changes["bbox_px"]
+        region.updated_at = time.time()
+        self.selected_region_id = region.id
+        self.save()
+        return region
+
+    def delete_region(self, region_id: str) -> bool:
+        region = self.get_region(region_id)
+        if region is None:
+            return False
+        self.regions = [r for r in self.regions if r.id != region_id]
+        if self.selected_region_id == region_id:
+            self.selected_region_id = self.regions[-1].id if self.regions else None
+        for rel in (region.mask_path, region.preview_path):
+            if rel:
+                try:
+                    (self.dir / rel).unlink()
+                except FileNotFoundError:
+                    pass
+        self.save()
+        return True
+
+    def open_region_mask(self, region_id: str):
+        region = self.get_region(region_id)
+        if region is None or not region.mask_path:
+            return None
+        path = self.dir / region.mask_path
+        if not path.exists():
+            return None
+        with Image.open(path) as mask:
+            return mask.convert("L")
+
+    def open_region_image(self, region_id: str):
+        image = self.open_image()
+        mask = self.open_region_mask(region_id)
+        if image is None or mask is None:
+            return None
+        return apply_mask_to_alpha(image, mask)
+
     # ── source image ─────────────────────────────────────────────────────────
     def set_image(self, data: bytes, filename: str) -> None:
         self.ensure_dirs()
+        if self.regions:
+            for region in self.regions:
+                for rel in (region.mask_path, region.preview_path):
+                    if rel:
+                        try:
+                            (self.dir / rel).unlink()
+                        except FileNotFoundError:
+                            pass
+            self.regions = []
+            self.selected_region_id = None
         suffix = Path(filename).suffix.lower() or ".png"
         self.image_name = f"source{suffix}"
         (self.dir / self.image_name).write_bytes(data)
@@ -117,7 +229,8 @@ class Project:
     def open_image(self) -> Image.Image | None:
         ip = self.image_path
         if ip and ip.exists():
-            return Image.open(ip)
+            with Image.open(ip) as image:
+                return image.copy()
         return None
 
     # ── versions ─────────────────────────────────────────────────────────────

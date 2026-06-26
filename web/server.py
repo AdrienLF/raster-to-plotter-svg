@@ -15,7 +15,8 @@ from engine.params import schema_json, validate
 from engine.pfm import REGISTRY, get as get_pfm, list_pfms
 from engine.generate import GENERATORS, get_generator, list_generators
 from engine.genframe import apply_framework
-from engine.composition import compose_visible_svg, layer_svg_zip, replace_selected_layer
+from engine.composition import compose_visible_svg, layer_svg_zip, parse_svg_size_mm, replace_selected_layer
+from engine.regions import mask_bbox
 from engine import project as project_mod
 from engine.project import Project, get_or_create
 
@@ -81,14 +82,27 @@ _project        = get_or_create('default')
 _drawing        = None    # last engine.Drawing produced
 _process_thread = None
 _process_lock   = threading.Lock()
+_segmentation_adapter = None
 
 def _project_public(p):
     has_image = bool(p.image_path and p.image_path.exists())
+    image_w = image_h = 0
+    if has_image:
+        try:
+            from PIL import Image
+
+            with Image.open(p.image_path) as image:
+                image_w, image_h = image.size
+        except Exception:
+            image_w = image_h = 0
     return {
         'id': p.id,
         'name': p.name,
         'image_name': p.image_name,
         'image_url': f'/api/source-image?v={int(time.time() * 1000)}' if has_image else None,
+        'image_width': image_w,
+        'image_height': image_h,
+        'selected_region_id': getattr(p, 'selected_region_id', None),
     }
 
 def _switch_project(pid):
@@ -133,6 +147,268 @@ def _replace_selected_composition_layer(svg, name, kind, source):
 
 def _composition_payload():
     return _composition().to_dict(include_svg=True)
+
+def _layer_by_id(layer_id):
+    return next((l for l in _composition().layers if l.id == layer_id), None)
+
+def _normalize_display_mode(value):
+    mode = str(value or 'pathfinding')
+    if mode not in {'raster', 'pathfinding', 'both'}:
+        raise ValueError(f'Unknown display mode: {mode!r}')
+    return mode
+
+def _normalize_pathfinding_style(value=None):
+    data = dict(value or {})
+    status = data.get('status') or 'stale'
+    if status not in {'clean', 'stale', 'generating', 'error'}:
+        status = 'stale'
+    return {
+        'enabled': bool(data.get('enabled', True)),
+        'pfm_id': str(data.get('pfm_id') or _project.pfm_id),
+        'params': dict(data.get('params') or {}),
+        'status': status,
+        'error': str(data.get('error') or ''),
+        'cache': dict(data.get('cache') or {}),
+    }
+
+def _mark_layer_style_stale(layer):
+    style = _normalize_pathfinding_style(layer.pathfinding_style)
+    if style.get('status') == 'clean':
+        style['status'] = 'stale'
+    layer.pathfinding_style = style
+
+def _region_occlusion_mask(region, layer):
+    image = _project.open_image()
+    if image is None:
+        return None
+    bbox = dict(getattr(region, 'bbox_px', None) or {})
+    if not bbox:
+        mask = _project.open_region_mask(region.id)
+        bbox = mask_bbox(mask) if mask else None
+    if not bbox:
+        return None
+    image_w, image_h = image.size
+    if not image_w or not image_h or not layer.width or not layer.height:
+        return None
+    return {
+        'type': 'rect',
+        'x': round(float(bbox.get('x', 0) or 0) / image_w * layer.width, 4),
+        'y': round(float(bbox.get('y', 0) or 0) / image_h * layer.height, 4),
+        'width': round(float(bbox.get('width', 0) or 0) / image_w * layer.width, 4),
+        'height': round(float(bbox.get('height', 0) or 0) / image_h * layer.height, 4),
+    }
+
+def _regions_payload():
+    return {
+        'regions': [r.to_dict() for r in getattr(_project, 'regions', [])],
+        'selected_region_id': getattr(_project, 'selected_region_id', None),
+    }
+
+class LocalSam2Adapter:
+    """Lazy local SAM 2 image predictor adapter.
+
+    The app can boot without SAM installed. Status and predict surface a clean
+    unavailable state instead of importing heavyweight dependencies at module
+    import time.
+    """
+
+    CHECKPOINT_URL = 'https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt'
+    PACKAGE_URL = 'git+https://github.com/facebookresearch/sam2.git'
+
+    def __init__(self, checkpoint=None, config=None, model=None):
+        self._predictor = None
+        self._error = None
+        self.setup_state = 'idle'
+        self.model = model or os.environ.get('SAM2_MODEL', 'sam2.1_hiera_tiny')
+        self.checkpoint = checkpoint or os.environ.get(
+            'SAM2_CHECKPOINT',
+            str(project_mod.WORKSPACE / 'models' / 'sam2.1_hiera_tiny.pt'),
+        )
+        self.config = config or os.environ.get(
+            'SAM2_CONFIG',
+            'configs/sam2.1/sam2.1_hiera_t.yaml',
+        )
+        self.checkpoint_url = os.environ.get('SAM2_CHECKPOINT_URL', self.CHECKPOINT_URL)
+        self.package_url = os.environ.get('SAM2_PACKAGE_URL', self.PACKAGE_URL)
+        self.auto_setup = os.environ.get('SAM2_AUTO_SETUP', '1') not in ('0', 'false', 'False')
+
+    def _has_module(self, name):
+        import importlib.util
+
+        return importlib.util.find_spec(name) is not None
+
+    def _install_sam2(self):
+        import importlib
+        import subprocess
+        import sys
+
+        self.setup_state = 'installing'
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', self.package_url],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 and 'No module named pip' in (result.stderr or ''):
+            result = subprocess.run(
+                ['uv', 'pip', 'install', self.package_url],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()
+            raise RuntimeError(f'SAM 2 install failed: {detail}')
+        importlib.invalidate_caches()
+
+    def _download_checkpoint(self):
+        import urllib.request
+
+        self.setup_state = 'downloading'
+        target = Path(self.checkpoint)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        part = target.with_suffix(target.suffix + '.part')
+        urllib.request.urlretrieve(self.checkpoint_url, part)
+        part.replace(target)
+
+    def _ensure_setup(self):
+        if not self.auto_setup:
+            return
+        missing_modules = [
+            name for name in ('sam2', 'torchvision') if not self._has_module(name)
+        ]
+        if missing_modules:
+            self._install_sam2()
+        if not Path(self.checkpoint).exists():
+            self._download_checkpoint()
+        self.setup_state = 'ready'
+
+    @staticmethod
+    def _device_for(torch):
+        if torch.cuda.is_available():
+            return 'cuda'
+        mps = getattr(getattr(torch, 'backends', None), 'mps', None)
+        if mps is not None and mps.is_available():
+            return 'mps'
+        return 'cpu'
+
+    def _load(self):
+        if self._predictor is not None:
+            return self._predictor
+        if self._error:
+            raise RuntimeError(self._error)
+        try:
+            self._ensure_setup()
+            import numpy as np
+            import torch
+            from sam2.build_sam import build_sam2
+            from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+            if not Path(self.checkpoint).exists():
+                raise RuntimeError(
+                    f'SAM 2 checkpoint not found at {self.checkpoint}. '
+                    'Set SAM2_CHECKPOINT or download sam2.1_hiera_tiny.pt.'
+                )
+            model = build_sam2(self.config, self.checkpoint, device=self._device_for(torch))
+            self._predictor = SAM2ImagePredictor(model)
+            self._np = np
+            self._torch = torch
+            return self._predictor
+        except Exception as exc:
+            self._error = str(exc)
+            raise RuntimeError(self._error) from exc
+
+    def status(self):
+        if self._predictor is not None:
+            return {'available': True, 'backend': 'sam2', 'model': self.model, 'setup_state': 'ready'}
+        try:
+            self._ensure_setup()
+            has_sam = self._has_module('sam2')
+            has_torch = self._has_module('torch')
+            has_torchvision = self._has_module('torchvision')
+        except Exception as exc:
+            self._error = str(exc)
+            self.setup_state = 'error'
+            has_sam = self._has_module('sam2')
+            has_torch = self._has_module('torch')
+            has_torchvision = self._has_module('torchvision')
+        missing = []
+        if not has_sam:
+            missing.append('sam2')
+        if not has_torch:
+            missing.append('torch')
+        if not has_torchvision:
+            missing.append('torchvision')
+        if not Path(self.checkpoint).exists():
+            missing.append('checkpoint')
+        available = not missing and self._error is None
+        payload = {
+            'available': available,
+            'backend': 'sam2',
+            'model': self.model,
+            'checkpoint': self.checkpoint,
+            'setup_state': 'ready' if available else self.setup_state,
+            'auto_setup': self.auto_setup,
+        }
+        if self._error:
+            payload['setup_state'] = 'error'
+            payload['error'] = self._error
+        elif missing:
+            payload['error'] = 'Missing ' + ', '.join(missing)
+        return payload
+
+    def predict(self, image, positive_points, negative_points):
+        predictor = self._load()
+        np = self._np
+        torch = self._torch
+        labels = [1] * len(positive_points) + [0] * len(negative_points)
+        points = positive_points + negative_points
+        if not points:
+            raise ValueError('At least one positive point is required')
+        point_coords = np.array([[p['x'], p['y']] for p in points], dtype=np.float32)
+        point_labels = np.array(labels, dtype=np.int32)
+        with torch.inference_mode():
+            predictor.set_image(np.array(image.convert('RGB')))
+            masks, scores, _ = predictor.predict(
+                point_coords=point_coords,
+                point_labels=point_labels,
+                multimask_output=True,
+            )
+        index = int(np.argmax(scores)) if len(scores) else 0
+        mask = (masks[index].astype(np.uint8) * 255)
+        from PIL import Image
+
+        return Image.fromarray(mask, 'L')
+
+def _get_segmentation_adapter():
+    global _segmentation_adapter
+    if _segmentation_adapter is None:
+        _segmentation_adapter = LocalSam2Adapter()
+    return _segmentation_adapter
+
+def _clean_points(value):
+    points = []
+    for item in value or []:
+        try:
+            x = float(item['x'])
+            y = float(item['y'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        points.append({'x': x, 'y': y})
+    return points
+
+def _png_data_url(image):
+    buf = io.BytesIO()
+    image.save(buf, format='PNG')
+    return 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode('ascii')
+
+def _image_from_data_url(value):
+    if not isinstance(value, str):
+        raise ValueError('mask_png is required')
+    raw = value.split(',', 1)[1] if ',' in value else value
+    from PIL import Image
+
+    return Image.open(io.BytesIO(base64.b64decode(raw))).convert('L')
 
 def emit(t, **kw):
     evt = {'t': t, **kw}
@@ -1216,7 +1492,7 @@ def api_composition():
 @app.route('/api/composition/layers/<layer_id>', methods=['PATCH'])
 def api_composition_layer(layer_id):
     data = request.json or {}
-    layer = next((l for l in _composition().layers if l.id == layer_id), None)
+    layer = _layer_by_id(layer_id)
     if not layer:
         return jsonify(error='Unknown layer'), 404
     if 'name' in data:
@@ -1233,6 +1509,32 @@ def api_composition_layer(layer_id):
         layer.crop = _validate_crop(data['crop'])
     if 'mask' in data:
         layer.mask = _validate_mask(data['mask'])
+    if 'region_id' in data:
+        region_id = data.get('region_id') or None
+        if region_id and _project.get_region(region_id) is None:
+            return jsonify(error='Unknown region'), 404
+        layer.region_id = region_id
+        region = _project.get_region(region_id)
+        layer.occlusion_mask = _region_occlusion_mask(region, layer) if region else None
+        _mark_layer_style_stale(layer)
+    if 'display_mode' in data:
+        try:
+            layer.display_mode = _normalize_display_mode(data.get('display_mode'))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+    if 'occlude_below' in data:
+        layer.occlude_below = bool(data.get('occlude_below'))
+    if 'occlusion_mask' in data:
+        layer.occlusion_mask = _validate_mask(data['occlusion_mask'])
+    if 'pathfinding_style' in data:
+        before = json.dumps(layer.pathfinding_style or {}, sort_keys=True)
+        style = _normalize_pathfinding_style(layer.pathfinding_style)
+        style.update(dict(data.get('pathfinding_style') or {}))
+        style = _normalize_pathfinding_style(style)
+        after = json.dumps(style, sort_keys=True)
+        if after != before and 'status' not in (data.get('pathfinding_style') or {}):
+            style['status'] = 'stale'
+        layer.pathfinding_style = style
     if data.get('selected'):
         _composition().selected_layer_id = layer.id
     _project.save_composition_layers()
@@ -1302,6 +1604,28 @@ def api_new_layer():
     _sync_current_svg_from_composition()
     return jsonify(ok=True, composition=_composition_payload())
 
+@app.route('/api/composition/add-layer', methods=['POST'])
+def api_add_layer():
+    # Create a real, selectable empty path-finding layer the size of the page.
+    # The floating Path Finding window then fills it via /pathfinding/generate.
+    data = request.json or {}
+    comp = _composition()
+    page = comp.page or {}
+    w = float(page.get('width') or 297)
+    h = float(page.get('height') or 420)
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}mm" '
+        f'height="{h}mm" viewBox="0 0 {w} {h}"></svg>'
+    )
+    name = (data.get('name') or '').strip() or f'Layer {len(comp.layers) + 1}'
+    layer = comp.add_layer(svg, name, 'pathfinding', {})
+    region_id = data.get('region_id') or None
+    if region_id and _project.get_region(region_id):
+        layer.region_id = region_id
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    return jsonify(ok=True, composition=_composition_payload())
+
 @app.route('/api/composition/layers/<layer_id>', methods=['DELETE'])
 def api_delete_layer(layer_id):
     if not _composition().delete_layer(layer_id):
@@ -1324,6 +1648,108 @@ def api_move_layer(layer_id):
         ok=True,
         composition=_composition_payload(),
     )
+
+@app.route('/api/composition/layers/<layer_id>/raster')
+def api_composition_layer_raster(layer_id):
+    layer = _layer_by_id(layer_id)
+    if not layer:
+        return jsonify(error='Unknown layer'), 404
+    region_id = layer.region_id or (layer.source or {}).get('region_id')
+    image = _project.open_region_image(region_id) if region_id else _project.open_image()
+    if image is None:
+        return jsonify(error='No region image available'), 404
+    buf = io.BytesIO()
+    image.convert('RGBA').save(buf, format='PNG')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png')
+
+def _generate_pathfinding_for_layer(layer, data):
+    if _project.image_path is None or not _project.image_path.exists():
+        return None, ('No image loaded', 400)
+    style = _normalize_pathfinding_style(layer.pathfinding_style)
+    pfm_id = data.get('pfm_id') or style.get('pfm_id') or _project.pfm_id
+    if pfm_id not in REGISTRY:
+        return None, ('Unknown PFM', 400)
+    region_id = data.get('region_id') or layer.region_id or (layer.source or {}).get('region_id')
+    region = _project.get_region(region_id) if region_id else None
+    if region_id and region is None:
+        return None, ('Unknown region', 404)
+    _area_from(data.get('area'))
+    _drawing_set_from(data.get('drawing_set'))
+    pfm = get_pfm(pfm_id)
+    params = validate(pfm.params, data.get('params') or style.get('params') or {})
+    seed = int(data.get('seed', params.get('seed', 0)) or 0)
+    # No region -> the effect runs on the whole layer image.
+    img = _project.open_region_image(region_id) if region else _project.open_image()
+    if img is None:
+        return None, ('No image available', 404)
+    layer.pathfinding_style = {
+        **style,
+        'enabled': bool(data.get('enabled', style.get('enabled', True))),
+        'pfm_id': pfm_id,
+        'params': params,
+        'status': 'generating',
+        'error': '',
+    }
+    drawing = pfm.run(img, _project.area, _project.drawing_set, params, seed=seed, on_progress=None)
+    svg = svg_io.to_svg(drawing)
+    layer.svg = svg
+    layer.width, layer.height = parse_svg_size_mm(svg)
+    layer.kind = 'pathfinding'
+    layer.region_id = region.id if region else None
+    layer.display_mode = _normalize_display_mode(data.get('display_mode') or layer.display_mode)
+    layer.source = {
+        'pfm_id': pfm_id,
+        'params': params,
+        'area': _project.area.to_dict(),
+        'drawing_set': _project.drawing_set.to_dict(),
+        'region_id': region.id if region else None,
+        'region_name': region.name if region else None,
+    }
+    # With a region, occlude only its bounding box; otherwise the layer occludes
+    # everything beneath its full footprint.
+    layer.occlusion_mask = (
+        _region_occlusion_mask(region, layer) if region
+        else {'type': 'rect', 'x': 0.0, 'y': 0.0,
+              'width': round(layer.width, 4), 'height': round(layer.height, 4)}
+    )
+    layer.pathfinding_style = {
+        'enabled': bool(data.get('enabled', style.get('enabled', True))),
+        'pfm_id': pfm_id,
+        'params': params,
+        'status': 'clean',
+        'error': '',
+        'cache': {
+            'generated_at': time.time(),
+            'svg_path': layer.svg_path,
+            'region_id': region.id if region else None,
+        },
+    }
+    return drawing, None
+
+@app.route('/api/composition/layers/<layer_id>/pathfinding/generate', methods=['POST'])
+def api_composition_layer_pathfinding_generate(layer_id):
+    global _drawing
+    data = request.json or {}
+    layer = _layer_by_id(layer_id)
+    if not layer:
+        return jsonify(error='Unknown layer'), 404
+    try:
+        drawing, error = _generate_pathfinding_for_layer(layer, data)
+    except Exception as exc:
+        style = _normalize_pathfinding_style(layer.pathfinding_style)
+        style['status'] = 'error'
+        style['error'] = str(exc)
+        layer.pathfinding_style = style
+        _project.save_composition_layers()
+        return jsonify(error=str(exc), composition=_composition_payload()), 500
+    if error:
+        message, status = error
+        return jsonify(error=message), status
+    _drawing = drawing
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    return jsonify(ok=True, composition=_composition_payload())
 
 @app.route('/api/settings', methods=['GET', 'POST'])
 def settings_route():
@@ -1440,6 +1866,94 @@ def api_source_image():
         return jsonify(error='No image loaded'), 404
     return send_file(ip)
 
+@app.route('/api/segmentation/status')
+def api_segmentation_status():
+    return jsonify(_get_segmentation_adapter().status())
+
+@app.route('/api/segmentation/predict', methods=['POST'])
+def api_segmentation_predict():
+    data = request.json or {}
+    image = _project.open_image()
+    if image is None:
+        return jsonify(error='No image loaded'), 400
+    positive = _clean_points(data.get('positive_points'))
+    negative = _clean_points(data.get('negative_points'))
+    if not positive:
+        return jsonify(error='At least one positive point is required'), 400
+    try:
+        mask = _get_segmentation_adapter().predict(image, positive, negative)
+    except Exception as exc:
+        return jsonify(error=str(exc), status=_get_segmentation_adapter().status()), 503
+    return jsonify(
+        ok=True,
+        mask_png=_png_data_url(mask),
+        bbox_px=mask_bbox(mask),
+        positive_points=positive,
+        negative_points=negative,
+    )
+
+@app.route('/api/regions')
+def api_regions():
+    return jsonify(_regions_payload())
+
+@app.route('/api/regions', methods=['POST'])
+def api_regions_create():
+    data = request.json or {}
+    try:
+        mask = _image_from_data_url(data.get('mask_png'))
+    except Exception as exc:
+        return jsonify(error=f'Invalid mask: {exc}'), 400
+    if data.get('invert'):
+        from PIL import ImageOps
+
+        mask = ImageOps.invert(mask)
+    region = _project.add_region(
+        name=str(data.get('name') or 'Region'),
+        mask=mask,
+        positive_points=_clean_points(data.get('positive_points')),
+        negative_points=_clean_points(data.get('negative_points')),
+        bbox_px=data.get('bbox_px') or mask_bbox(mask),
+    )
+    return jsonify(ok=True, region=region.to_dict(), **_regions_payload())
+
+@app.route('/api/regions/<region_id>', methods=['PATCH'])
+def api_regions_update(region_id):
+    data = request.json or {}
+    changes = {}
+    if 'name' in data:
+        changes['name'] = data.get('name')
+    if 'mask_png' in data:
+        try:
+            changes['mask'] = _image_from_data_url(data.get('mask_png'))
+        except Exception as exc:
+            return jsonify(error=f'Invalid mask: {exc}'), 400
+    if 'positive_points' in data:
+        changes['positive_points'] = _clean_points(data.get('positive_points'))
+    if 'negative_points' in data:
+        changes['negative_points'] = _clean_points(data.get('negative_points'))
+    if 'bbox_px' in data:
+        changes['bbox_px'] = data.get('bbox_px')
+    region = _project.update_region(region_id, **changes)
+    if region is None:
+        return jsonify(error='Unknown region'), 404
+    return jsonify(ok=True, region=region.to_dict(), **_regions_payload())
+
+@app.route('/api/regions/<region_id>', methods=['DELETE'])
+def api_regions_delete(region_id):
+    if not _project.delete_region(region_id):
+        return jsonify(error='Unknown region'), 404
+    return jsonify(ok=True, **_regions_payload())
+
+@app.route('/api/regions/<region_id>/mask')
+def api_regions_mask(region_id):
+    region = _project.get_region(region_id)
+    if region is None:
+        return jsonify(error='Unknown region'), 404
+    path = _project.dir / region.mask_path
+    if not path.exists():
+        return jsonify(error='Region mask missing'), 404
+    return send_file(path, mimetype='image/png')
+
 @app.route('/api/pfm/list')
 def api_pfm_list():
     return jsonify(pfms=list_pfms(), backend=accel.backend_name())
@@ -1452,15 +1966,16 @@ def api_pfm_schema(pfm_id):
     return jsonify(id=p.id, name=p.name, family=p.family, style=p.style,
                    params=schema_json(p.params))
 
-def _process_worker(pfm_id, params, seed):
+def _process_worker(pfm_id, params, seed, region_id=None):
     global _drawing, _current_svg
     try:
         emit('proc', state='running', pfm=pfm_id)
-        img = _project.open_image()
+        img = _project.open_region_image(region_id) if region_id else _project.open_image()
         if img is None:
             emit('proc', state='error', msg='No image loaded')
             return
         pfm = get_pfm(pfm_id)
+        region = _project.get_region(region_id) if region_id else None
 
         def on_progress(stage, frac):
             emit('proc', state='progress', stage=stage, frac=frac)
@@ -1471,7 +1986,7 @@ def _process_worker(pfm_id, params, seed):
         _drawing = drawing
         _project.pfm_id = pfm_id
         _project.params = validate(pfm.params, params)
-        _replace_selected_composition_layer(
+        layer = _replace_selected_composition_layer(
             svg,
             pfm.name,
             'pathfinding',
@@ -1480,8 +1995,26 @@ def _process_worker(pfm_id, params, seed):
                 'params': _project.params,
                 'area': _project.area.to_dict(),
                 'drawing_set': _project.drawing_set.to_dict(),
+                'region_id': region.id if region else None,
+                'region_name': region.name if region else None,
             },
         )
+        layer.region_id = region.id if region else None
+        layer.display_mode = 'pathfinding'
+        layer.pathfinding_style = {
+            'enabled': True,
+            'pfm_id': pfm_id,
+            'params': _project.params,
+            'status': 'clean',
+            'error': '',
+            'cache': {
+                'generated_at': time.time(),
+                'svg_path': layer.svg_path,
+                'region_id': region.id if region else None,
+            },
+        }
+        layer.occlusion_mask = _region_occlusion_mask(region, layer) if region else None
+        _project.save_composition_layers()
         _project.save()
         per_pen = [{'name': l.pen.name, 'colour': l.pen.colour, 'count': l.count()}
                    for l in drawing.layers if l.count()]
@@ -1504,6 +2037,9 @@ def api_process():
         return jsonify(error='Unknown PFM'), 400
     if _project.image_path is None or not _project.image_path.exists():
         return jsonify(error='No image loaded'), 400
+    region_id = data.get('region_id') or None
+    if region_id and _project.get_region(region_id) is None:
+        return jsonify(error='Unknown region'), 404
     if _process_thread and _process_thread.is_alive():
         return jsonify(error='Already processing'), 409
     _area_from(data.get('area'))
@@ -1512,7 +2048,7 @@ def api_process():
     seed = int(data.get('seed', params.get('seed', 0)) or 0)
     _clear_last_proc_events()
     _process_thread = threading.Thread(
-        target=_process_worker, args=(pfm_id, params, seed), daemon=True)
+        target=_process_worker, args=(pfm_id, params, seed, region_id), daemon=True)
     _process_thread.start()
     return jsonify(ok=True)
 

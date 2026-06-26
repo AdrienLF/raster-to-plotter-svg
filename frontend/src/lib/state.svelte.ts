@@ -9,6 +9,7 @@ import type {
   PlotJob,
   PlotProgress,
   PfmInfo,
+  RegionT,
   Stats,
   VersionT,
 } from "./types";
@@ -52,11 +53,24 @@ class Studio {
     layers: [],
   });
   showLayerBounds = $state(true);
+  layerStyleOpen = $state(false);
+  layerStyleSchema = $state<Param[]>([]);
   // Active mask-drawing tool (composition step). null = not drawing.
   maskMode = $state<null | "rect" | "ellipse" | "pen">(null);
   // When true, on-canvas handles edit the selected layer's mask instead of
   // scaling the layer.
   maskEdit = $state(false);
+
+  // source-image AI regions
+  regions = $state<RegionT[]>([]);
+  selectedRegionId = $state<string | null>(null);
+  regionDraftMask = $state<string | null>(null);
+  regionDraftBbox = $state<{ x: number; y: number; width: number; height: number } | null>(null);
+  regionPositivePoints = $state<{ x: number; y: number }[]>([]);
+  regionNegativePoints = $state<{ x: number; y: number }[]>([]);
+  regionSelecting = $state(false);
+  regionPredicting = $state(false);
+  segmentationStatus = $state<Record<string, any> | null>(null);
 
   // pens
   drawingSet = $state<DrawingSetT | null>(null);
@@ -93,6 +107,9 @@ class Studio {
     this.composition.layers.find((layer) => layer.id === this.composition.selected_layer_id) ??
       this.composition.layers.at(-1) ??
       null,
+  );
+  selectedRegion = $derived<RegionT | null>(
+    this.regions.find((region) => region.id === this.selectedRegionId) ?? null,
   );
   hasVisibleLayers = $derived(this.composition.layers.some((layer) => layer.visible));
 }

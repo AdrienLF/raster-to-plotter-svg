@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from xml.sax.saxutils import escape
 
-from .geometry import Point, clip_polyline, clip_polyline_polygon
+from .geometry import Point, _segment_polygon_ts, clip_polyline, clip_polyline_polygon, point_in_polygon
 
 PX_TO_MM = 25.4 / 96.0
 _STEP_MM = 0.4  # curve flattening resolution
@@ -178,7 +178,46 @@ def _crop_rect(crop: dict) -> tuple[float, float, float, float]:
     return (x, y, x + float(crop["width"]), y + float(crop["height"]))
 
 
-def clipped_layer_body(svg: str, crop: dict | None, mask: dict | None) -> str:
+def _clip_polyline_outside_polygon(points: list[Point], polygon: list[Point]) -> list[list[Point]]:
+    """Return sub-polylines that fall outside ``polygon``."""
+    if len(polygon) < 3 or len(points) < 2:
+        return [points]
+    out: list[list[Point]] = []
+    current: list[Point] = []
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        cuts = sorted(set(_segment_polygon_ts(x0, y0, x1, y1, polygon)))
+        bounds = [0.0] + cuts + [1.0]
+        dx, dy = x1 - x0, y1 - y0
+        for ta, tb in zip(bounds, bounds[1:]):
+            if tb - ta < 1e-9:
+                continue
+            tm = (ta + tb) / 2
+            if point_in_polygon((x0 + tm * dx, y0 + tm * dy), polygon):
+                if len(current) >= 2:
+                    out.append(current)
+                current = []
+                continue
+            a = (x0 + ta * dx, y0 + ta * dy)
+            b = (x0 + tb * dx, y0 + tb * dy)
+            if not current:
+                current = [a, b]
+            elif current[-1] == a:
+                current.append(b)
+            else:
+                if len(current) >= 2:
+                    out.append(current)
+                current = [a, b]
+    if len(current) >= 2:
+        out.append(current)
+    return out
+
+
+def clipped_layer_body(
+    svg: str,
+    crop: dict | None,
+    mask: dict | None,
+    exclude_masks: list[dict] | None = None,
+) -> str:
     """Flatten ``svg`` and clip to ``crop`` and/or ``mask``; return SVG body.
 
     Coordinates are layer-local mm; the caller wraps this in the layer's
@@ -186,6 +225,7 @@ def clipped_layer_body(svg: str, crop: dict | None, mask: dict | None) -> str:
     """
     rect = _crop_rect(crop) if crop else None
     poly = mask_polygon(mask) if mask else None
+    exclude_polys = [mask_polygon(m) for m in (exclude_masks or []) if m]
     drawables, _se = _drawables(svg)
     out: list[str] = []
     for el in drawables:
@@ -196,6 +236,11 @@ def clipped_layer_body(svg: str, crop: dict | None, mask: dict | None) -> str:
                 pieces = [sub for pl in pieces for sub in clip_polyline(pl, rect)]
             if poly:
                 pieces = [sub for pl in pieces for sub in clip_polyline_polygon(pl, poly)]
+            for exclude_poly in exclude_polys:
+                if exclude_poly:
+                    pieces = [
+                        sub for pl in pieces for sub in _clip_polyline_outside_polygon(pl, exclude_poly)
+                    ]
             for sub in pieces:
                 if len(sub) < 2:
                     continue

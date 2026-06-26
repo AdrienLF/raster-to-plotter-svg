@@ -191,6 +191,28 @@ class CropMaskTest(unittest.TestCase):
         self.assertEqual(restored.crop, layer.crop)
         self.assertEqual(restored.mask, layer.mask)
 
+    def test_smart_region_layer_fields_roundtrip_through_dict(self):
+        layer = CompositionLayer(id="a", name="Face", kind="pathfinding", width=100, height=100, svg=LAYER_BOX)
+        layer.region_id = "region-face"
+        layer.display_mode = "both"
+        layer.occlude_below = True
+        layer.occlusion_mask = {"type": "rect", "x": 20, "y": 10, "width": 40, "height": 50}
+        layer.pathfinding_style = {
+            "enabled": True,
+            "pfm_id": "adaptive_stippling",
+            "params": {"density": 0.5},
+            "status": "stale",
+            "cache": {"generated_at": "2026-06-25T10:00:00Z"},
+        }
+
+        restored = CompositionLayer.from_dict(layer.to_dict(include_svg=True))
+
+        self.assertEqual(restored.region_id, "region-face")
+        self.assertEqual(restored.display_mode, "both")
+        self.assertTrue(restored.occlude_below)
+        self.assertEqual(restored.occlusion_mask, layer.occlusion_mask)
+        self.assertEqual(restored.pathfinding_style, layer.pathfinding_style)
+
     def test_replace_clears_existing_crop_and_mask(self):
         comp = Composition()
         layer = comp.add_layer(LAYER_BOX, "A", "svg", {})
@@ -224,6 +246,23 @@ class CropMaskTest(unittest.TestCase):
         svg = compose_visible_svg(comp)
         ET.fromstring(svg.encode("utf-8"))  # raises if not well-formed
         self.assertIn("Spokes &amp; Circles", svg)
+
+    def test_occluding_layer_clips_visible_lower_geometry(self):
+        comp = Composition()
+        lower = comp.add_layer(LAYER_LINE, "Background paths", "pathfinding", {})
+        upper = comp.add_layer(LAYER_BOX, "Face region", "pathfinding", {})
+        upper.occlude_below = True
+        upper.occlusion_mask = {"type": "rect", "x": 25, "y": 0, "width": 50, "height": 100}
+
+        svg = compose_visible_svg(comp)
+        lower_group = re.search(
+            rf'data-layer-id="{lower.id}".*?</g>',
+            svg,
+            flags=re.DOTALL,
+        ).group(0)
+        ds = _path_ds(lower_group)
+
+        self.assertEqual(ds, ["M0 50 L25 50", "M75 50 L100 50"])
 
 
 if __name__ == "__main__":
