@@ -13,7 +13,7 @@ import math
 import random
 
 from .geometry import clip_polyline
-from .genframe import FRAMEWORK_PARAMS
+from .genframe import FRAMEWORK_PARAMS, convex_interval
 from .params import Param
 
 Line = list[tuple[float, float]]
@@ -76,13 +76,22 @@ def _segment_outside_circle(p0, p1, cx, cy, r):
     return out
 
 
-def cull_inside_circle(lines: list[Line], cx: float, cy: float, r: float) -> list[Line]:
-    """Remove the parts of each line that fall inside the circle."""
+def cull_inside_polygon(lines: list[Line], poly: Line) -> list[Line]:
+    """Remove the parts of each line that fall inside the convex polygon."""
     out: list[Line] = []
     for line in lines:
         for p0, p1 in zip(line, line[1:]):
-            for a, b in _segment_outside_circle(p0, p1, cx, cy, r):
-                out.append([a, b])
+            iv = convex_interval(p0, p1, poly)
+            if iv is None:               # segment entirely outside -> keep it
+                out.append([p0, p1])
+                continue
+            u0, u1 = iv
+            x0, y0 = p0
+            dx, dy = p1[0] - x0, p1[1] - y0
+            if u0 > 0:
+                out.append([(x0, y0), (x0 + dx * u0, y0 + dy * u0)])
+            if u1 < 1:
+                out.append([(x0 + dx * u1, y0 + dy * u1), (p1[0], p1[1])])
     return out
 
 
@@ -131,15 +140,15 @@ def spokes_and_circles(p: dict, seed: int = 0):
             circ = translate(rotate(circ, sp_ang), cx_pg, cy_pg)
             pattern.append(circ)
 
-        # cluster centre (where the cropping circle sits)
-        ccx, ccy = translate(rotate([(0.0, -spoke_len)], sp_ang), cx_pg, cy_pg)[0]
+        # cropping shape — a polygon with `circle_segments` sides (matches the
+        # rendered circles), so a low segment count crops as a triangle/square.
+        crop = make_circle(cseg, float(p["crop_radius"]))
+        crop = rotate(crop, float(p["circle_rotation"]) + 90)
+        crop = translate(crop, 0, -spoke_len)
+        crop = translate(rotate(crop, sp_ang), cx_pg, cy_pg)
         if p["draw_crop_radius"]:
-            crop = make_circle(cseg, float(p["crop_radius"]))
-            crop = rotate(crop, float(p["circle_rotation"]) + 90)
-            crop = translate(crop, 0, -spoke_len)
-            crop = translate(rotate(crop, sp_ang), cx_pg, cy_pg)
             pattern.append(crop)
-        ray_lines = cull_inside_circle(ray_lines, ccx, ccy, float(p["crop_radius"]))
+        ray_lines = cull_inside_polygon(ray_lines, crop)
 
     pattern.extend(ray_lines)
 

@@ -315,6 +315,63 @@ def _seg_circle_outside(p0, p1, cx, cy, r):
     return out
 
 
+def convex_interval(p0, p1, poly):
+    """Parametric interval [u0,u1] of segment p0->p1 that lies inside the convex
+    polygon `poly` (clip against each edge half-plane). None if no overlap.
+    Reads only [0],[1] of each point, so works for 2D or 3D points."""
+    n = len(poly)
+    cx = sum(pt[0] for pt in poly) / n
+    cy = sum(pt[1] for pt in poly) / n
+    x0, y0 = p0[0], p0[1]
+    dx, dy = p1[0] - x0, p1[1] - y0
+    edges = list(zip(poly, poly[1:]))
+    if poly[0] != poly[-1]:
+        edges.append((poly[-1], poly[0]))
+    u0, u1 = 0.0, 1.0
+    for a, b in edges:
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        s = 1.0 if (ex * (cy - a[1]) - ey * (cx - a[0])) >= 0 else -1.0
+        c0 = s * (ex * (y0 - a[1]) - ey * (x0 - a[0]))
+        c1 = s * (ex * dy - ey * dx)
+        if abs(c1) < 1e-12:
+            if c0 < 0:
+                return None
+        else:
+            t = -c0 / c1
+            if c1 > 0:
+                u0 = max(u0, t)
+            else:
+                u1 = min(u1, t)
+    return (u0, u1) if u0 <= u1 else None
+
+
+def _seg_poly_inside(p0, p1, poly):
+    iv = convex_interval(p0, p1, poly)
+    if iv is None:
+        return []
+    x0, y0 = p0[0], p0[1]
+    dx, dy = p1[0] - x0, p1[1] - y0
+    return [((x0 + dx * iv[0], y0 + dy * iv[0], 0.0), (x0 + dx * iv[1], y0 + dy * iv[1], 0.0))]
+
+
+def _seg_poly_outside(p0, p1, poly):
+    x0, y0 = p0[0], p0[1]
+    dx, dy = p1[0] - x0, p1[1] - y0
+
+    def at(t):
+        return (x0 + dx * t, y0 + dy * t, 0.0)
+
+    iv = convex_interval(p0, p1, poly)
+    if iv is None:
+        return [(at(0.0), at(1.0))]
+    out = []
+    if iv[0] > 0:
+        out.append((at(0.0), at(iv[0])))
+    if iv[1] < 1:
+        out.append((at(iv[1]), at(1.0)))
+    return out
+
+
 def _squarify_offsets(pw, ph, squarify):
     tb = lr = 0.0
     if squarify:
@@ -385,16 +442,17 @@ def apply_framework(lines, pw: float, ph: float, v: dict, seed: int = 0):
             x0, y0, x1, y1 = rod
             extras.append([(x0, y0, 0.0), (x1, y0, 0.0), (x1, y1, 0.0), (x0, y1, 0.0), (x0, y0, 0.0)])
 
-    for n, pre in ((1, "cod"), (2, "cod2")):
+    for pre in ("cod", "cod2"):
         if not v[f"use_{pre}"]:
             continue
-        cx, cy, r = v[f"{pre}_x"], v[f"{pre}_y"], v[f"{pre}_size"]
+        poly = _circle_outline(v[f"{pre}_x"], v[f"{pre}_y"], v[f"{pre}_size"],
+                               v[f"{pre}_sides"], v[f"{pre}_rotation"])
         keep_in = bool(v[f"{pre}_crop_outside"])
-        seg = (lambda a, b, cx=cx, cy=cy, r=r: _seg_circle_inside(a, b, cx, cy, r)) if keep_in \
-            else (lambda a, b, cx=cx, cy=cy, r=r: _seg_circle_outside(a, b, cx, cy, r))
+        seg = (lambda a, b, poly=poly: _seg_poly_inside(a, b, poly)) if keep_in \
+            else (lambda a, b, poly=poly: _seg_poly_outside(a, b, poly))
         lines = _clip_lines(lines, seg)
         if v[f"draw_{pre}"]:
-            extras.append(_circle_outline(cx, cy, r, v[f"{pre}_sides"], v[f"{pre}_rotation"]))
+            extras.append(poly)
 
     if v["draw_margin"]:
         x0, y0, x1, y1 = margin
