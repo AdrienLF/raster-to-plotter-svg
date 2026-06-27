@@ -11,7 +11,11 @@ Results are identical modulo floating-point summation order.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+_log = logging.getLogger("plotter.engine.accel")
 
 try:  # optional GPU dependency
     import torch
@@ -71,8 +75,9 @@ def assign_nearest(points: np.ndarray, sites: np.ndarray) -> np.ndarray:
     if DEVICE is not None and points.shape[0] * sites.shape[0] > 1_000_000:
         try:
             return _assign_nearest_torch(points, sites)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("accel.gpu_fallback", extra={"fields": {
+                "backend": backend_name(), "err": str(exc)}})
     from scipy.spatial import cKDTree
     _, idx = cKDTree(sites).query(points, k=1)
     return np.asarray(idx, dtype=np.int64)

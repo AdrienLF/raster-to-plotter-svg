@@ -1,12 +1,15 @@
-import os, json, threading, queue, time, tempfile, re, io, zipfile, math, base64, uuid, pickle, hashlib
+import os, json, threading, queue, time, tempfile, re, io, zipfile, math, base64, uuid, pickle, hashlib, logging
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import serial
 from flask import (
     Flask, render_template, request, jsonify, Response, stream_with_context,
-    send_file, send_from_directory,
+    send_file, send_from_directory, g,
 )
+
+from web import obslog
+from web.obslog import WideEvent
 
 from engine import accel, svg_io
 from engine.canvas import DrawingArea, AREA_PRESETS
@@ -21,6 +24,53 @@ from engine import project as project_mod
 from engine.project import Project, get_or_create
 
 app = Flask(__name__)
+
+# ── Wide-event request logging ──────────────────────────────────────────────────
+# One `http.request` line per request, correlated to worker runs by request_id.
+# High-frequency polling routes are suppressed to keep the log signal:noise high.
+LOG = obslog.configure()
+_LOG_SUPPRESS_PATHS = {
+    '/api/stream', '/api/plot/estimate', '/api/plot/job', '/favicon.ico',
+}
+
+
+@app.before_request
+def _wide_event_start():
+    g.request_id = request.headers.get('X-Request-Id') or obslog.new_request_id()
+    g.wide = WideEvent('http.request', g.request_id)
+    g.wide_suppress = request.path in _LOG_SUPPRESS_PATHS
+
+
+@app.after_request
+def _wide_event_finish(resp):
+    wide = getattr(g, 'wide', None)
+    if wide is not None:
+        resp.headers['X-Request-Id'] = g.request_id
+        if not getattr(g, 'wide_suppress', False):
+            wide.set(method=request.method, path=request.path,
+                     status=resp.status_code, len=resp.calculate_content_length())
+            wide.emit('success' if resp.status_code < 500 else 'error')
+    return resp
+
+
+@app.teardown_request
+def _wide_event_teardown(exc):
+    # Catch unhandled 500s where after_request never ran.
+    wide = getattr(g, 'wide', None)
+    if exc is not None and wide is not None and not wide._emitted:
+        wide.set(method=request.method, path=request.path, status=500)
+        wide.emit('error', level=logging.ERROR, error=str(exc))
+
+
+def _params_summary(params, limit=120):
+    """Compact `k=v,k=v` of scalar params — enough to reproduce a run, not the world."""
+    if not isinstance(params, dict):
+        return '-'
+    parts = [f'{k}={v}' for k, v in sorted(params.items())
+             if isinstance(v, (int, float, str, bool))]
+    s = ','.join(parts)
+    return s[:limit] if s else '-'
+
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 
@@ -1136,12 +1186,16 @@ class PlotterConn:
 
 # ── Plot worker ───────────────────────────────────────────────────────────────
 
-def _plot_worker(job):
+def _plot_worker(job, request_id=None):
     plotter = None
+    done = 0
+    w = WideEvent('worker.plot', request_id)
+    w.set(resumed=bool(job.get('next_path') or job.get('next_copy')))
     try:
         svg_bytes = _plot_job_svg_bytes(job)
         settings = job.get('settings') or cfg.copy()
         placement = job.get('placement') or {'x': 0.0, 'y': 0.0}
+        w.set(port=settings.get('port'))
         _checkpoint_plot_job(job, status='running')
 
         emit('state', state='homing')
@@ -1162,6 +1216,7 @@ def _plot_worker(job):
             _checkpoint_plot_job(job, status='error', error='No paths found in SVG.')
             emit('state', state='error')
             emit('error', msg='No paths found in SVG.')
+            w.emit('error', level=logging.ERROR, error='No paths found in SVG.')
             return
 
         copies = max(1, int(settings.get('copies', 1) or 1))
@@ -1176,6 +1231,8 @@ def _plot_worker(job):
         estimated_seconds = estimate.get('estimated_seconds')
         started_at = time.time()
         total_paths = len(polylines)
+        w.set(copies=copies, paths=total_paths, shapes=total_shapes,
+              segments=total, est_seconds=estimated_seconds)
         start_copy = max(0, min(copies, int(job.get('next_copy', 0) or 0)))
         start_path = max(0, int(job.get('next_path', 0) or 0))
         if total_paths and start_path >= total_paths:
@@ -1280,6 +1337,7 @@ def _plot_worker(job):
              **_plot_progress_payload(total, total, total_shapes, total_shapes,
                                       started_at, estimated_seconds=estimated_seconds))
         emit('log', msg='Done!')
+        w.emit('success', done_segments=total)
 
     except Exception as exc:
         if _stop_event.is_set() or '__stopped__' in str(exc):
@@ -1287,11 +1345,13 @@ def _plot_worker(job):
                 _checkpoint_plot_job(job, status='stopped')
             emit('state', state='idle')
             emit('log', msg='Stopped.')
+            w.emit('stopped', done_segments=done)
         else:
             if job:
                 _checkpoint_plot_job(job, status='error', error=str(exc))
             emit('state', state='error')
             emit('error', msg=str(exc))
+            w.emit('error', level=logging.ERROR, error=str(exc), done_segments=done)
     finally:
         if plotter:
             plotter.close()
@@ -1382,7 +1442,7 @@ def plot():
     _stop_event.clear()
     job = _create_plot_job(_current_svg, cfg.copy(), {'x': 0.0, 'y': 0.0})
     _plot_thread = threading.Thread(
-        target=_plot_worker, args=(job,), daemon=True
+        target=_plot_worker, args=(job, g.request_id), daemon=True
     )
     _plot_thread.start()
     return jsonify(ok=True, job=_plot_job_public(job))
@@ -1402,7 +1462,7 @@ def resume_plot():
     _clear_last_plot_events()
     _stop_event.clear()
     _plot_thread = threading.Thread(
-        target=_plot_worker, args=(job,), daemon=True
+        target=_plot_worker, args=(job, g.request_id), daemon=True
     )
     _plot_thread.start()
     return jsonify(ok=True, job=_plot_job_public(job))
@@ -1663,7 +1723,7 @@ def api_composition_layer_raster(layer_id):
     buf.seek(0)
     return send_file(buf, mimetype='image/png')
 
-def _generate_pathfinding_for_layer(layer, data):
+def _generate_pathfinding_for_layer(layer, data, wide=None):
     if _project.image_path is None or not _project.image_path.exists():
         return None, ('No image loaded', 400)
     style = _normalize_pathfinding_style(layer.pathfinding_style)
@@ -1679,6 +1739,9 @@ def _generate_pathfinding_for_layer(layer, data):
     pfm = get_pfm(pfm_id)
     params = validate(pfm.params, data.get('params') or style.get('params') or {})
     seed = int(data.get('seed', params.get('seed', 0)) or 0)
+    if wide is not None:
+        wide.set(pfm_id=pfm_id, region_id=region_id or '-', seed=seed,
+                 params=_params_summary(params), backend=accel.backend_name())
     # No region -> the effect runs on the whole layer image.
     img = _project.open_region_image(region_id) if region else _project.open_image()
     if img is None:
@@ -1691,7 +1754,12 @@ def _generate_pathfinding_for_layer(layer, data):
         'status': 'generating',
         'error': '',
     }
-    drawing = pfm.run(img, _project.area, _project.drawing_set, params, seed=seed, on_progress=None)
+    on_progress = wide.wrap_progress() if wide is not None else None
+    drawing = pfm.run(img, _project.area, _project.drawing_set, params, seed=seed,
+                      on_progress=on_progress)
+    if wide is not None:
+        wide.set(shapes=drawing.total(),
+                 length_mm=round(svg_io.estimate_path_length_mm(drawing)))
     svg = svg_io.to_svg(drawing)
     layer.svg = svg
     layer.width, layer.height = parse_svg_size_mm(svg)
@@ -1734,21 +1802,26 @@ def api_composition_layer_pathfinding_generate(layer_id):
     layer = _layer_by_id(layer_id)
     if not layer:
         return jsonify(error='Unknown layer'), 404
+    w = WideEvent('worker.pathfinding', g.request_id)
+    w.set(layer_id=layer_id)
     try:
-        drawing, error = _generate_pathfinding_for_layer(layer, data)
+        drawing, error = _generate_pathfinding_for_layer(layer, data, wide=w)
     except Exception as exc:
         style = _normalize_pathfinding_style(layer.pathfinding_style)
         style['status'] = 'error'
         style['error'] = str(exc)
         layer.pathfinding_style = style
         _project.save_composition_layers()
+        w.emit('error', level=logging.ERROR, error=str(exc))
         return jsonify(error=str(exc), composition=_composition_payload()), 500
     if error:
         message, status = error
+        w.emit('error', level=logging.WARNING, error=message)
         return jsonify(error=message), status
     _drawing = drawing
     _project.save_composition_layers()
     _sync_current_svg_from_composition()
+    w.emit('success')
     return jsonify(ok=True, composition=_composition_payload())
 
 @app.route('/api/settings', methods=['GET', 'POST'])
@@ -1880,14 +1953,20 @@ def api_segmentation_predict():
     negative = _clean_points(data.get('negative_points'))
     if not positive:
         return jsonify(error='At least one positive point is required'), 400
+    adapter = _get_segmentation_adapter()
+    w = WideEvent('worker.segmentation', g.request_id)
+    w.set(model=adapter.model, n_pos=len(positive), n_neg=len(negative))
     try:
-        mask = _get_segmentation_adapter().predict(image, positive, negative)
+        mask = adapter.predict(image, positive, negative)
     except Exception as exc:
-        return jsonify(error=str(exc), status=_get_segmentation_adapter().status()), 503
+        w.emit('error', level=logging.ERROR, error=str(exc))
+        return jsonify(error=str(exc), status=adapter.status()), 503
+    bbox = mask_bbox(mask)
+    w.emit('success', bbox=str(bbox))
     return jsonify(
         ok=True,
         mask_png=_png_data_url(mask),
-        bbox_px=mask_bbox(mask),
+        bbox_px=bbox,
         positive_points=positive,
         negative_points=negative,
     )
@@ -1966,19 +2045,23 @@ def api_pfm_schema(pfm_id):
     return jsonify(id=p.id, name=p.name, family=p.family, style=p.style,
                    params=schema_json(p.params))
 
-def _process_worker(pfm_id, params, seed, region_id=None):
+def _process_worker(pfm_id, params, seed, region_id=None, request_id=None):
     global _drawing, _current_svg
+    w = WideEvent('worker.pfm', request_id)
+    w.set(pfm_id=pfm_id, region_id=region_id or '-', seed=seed,
+          params=_params_summary(params), backend=accel.backend_name())
     try:
         emit('proc', state='running', pfm=pfm_id)
         img = _project.open_region_image(region_id) if region_id else _project.open_image()
         if img is None:
             emit('proc', state='error', msg='No image loaded')
+            w.emit('error', level=logging.ERROR, error='No image loaded')
             return
         pfm = get_pfm(pfm_id)
         region = _project.get_region(region_id) if region_id else None
 
-        def on_progress(stage, frac):
-            emit('proc', state='progress', stage=stage, frac=frac)
+        on_progress = w.wrap_progress(
+            lambda stage, frac: emit('proc', state='progress', stage=stage, frac=frac))
 
         drawing = pfm.run(img, _project.area, _project.drawing_set,
                           params, seed=seed, on_progress=on_progress)
@@ -2018,15 +2101,19 @@ def _process_worker(pfm_id, params, seed, region_id=None):
         _project.save()
         per_pen = [{'name': l.pen.name, 'colour': l.pen.colour, 'count': l.count()}
                    for l in drawing.layers if l.count()]
+        total = drawing.total()
+        length_mm = round(svg_io.estimate_path_length_mm(drawing))
         emit('proc', state='done',
              svg=_current_svg.decode('utf-8', 'replace') if _current_svg else svg,
              composition=_composition_payload(),
-             total=drawing.total(),
-             length_mm=round(svg_io.estimate_path_length_mm(drawing)),
+             total=total,
+             length_mm=length_mm,
              backend=accel.backend_name(),
              per_pen=per_pen)
+        w.emit('success', shapes=total, length_mm=length_mm)
     except Exception as exc:
         emit('proc', state='error', msg=str(exc))
+        w.emit('error', level=logging.ERROR, error=str(exc))
 
 @app.route('/api/process', methods=['POST'])
 def api_process():
@@ -2048,22 +2135,27 @@ def api_process():
     seed = int(data.get('seed', params.get('seed', 0)) or 0)
     _clear_last_proc_events()
     _process_thread = threading.Thread(
-        target=_process_worker, args=(pfm_id, params, seed, region_id), daemon=True)
+        target=_process_worker, args=(pfm_id, params, seed, region_id, g.request_id),
+        daemon=True)
     _process_thread.start()
     return jsonify(ok=True)
 
 # ── Generate step (rule-based drawing, no input image) ──────────────────────────
 
-def _generate_worker(gid, params, seed):
+def _generate_worker(gid, params, seed, request_id=None):
     global _drawing, _current_svg
+    ev = WideEvent('worker.generate', request_id)
+    ev.set(gid=gid, seed=seed, params=_params_summary(params), backend='generator')
     try:
         emit('proc', state='running', pfm=gid)
         gen = get_generator(gid)
         vals = validate(gen['params'], params)
         emit('proc', state='progress', stage='generating', frac=0.3)
-        lines, w_cm, h_cm = gen['fn'](vals, seed=seed)          # cm
+        with ev.time('generating'):
+            lines, w_cm, h_cm = gen['fn'](vals, seed=seed)          # cm
         emit('proc', state='progress', stage='transforming', frac=0.6)
-        lines, extras = apply_framework(lines, w_cm, h_cm, vals, seed)
+        with ev.time('transforming'):
+            lines, extras = apply_framework(lines, w_cm, h_cm, vals, seed)
         lines = lines + extras
         lines = [[(x * 10.0, y * 10.0) for x, y in ln] for ln in lines]  # cm -> mm
         w_mm, h_mm = w_cm * 10.0, h_cm * 10.0
@@ -2076,15 +2168,18 @@ def _generate_worker(gid, params, seed):
             'generate',
             {'generator_id': gid, 'params': vals},
         )
+        length_mm = round(svg_io.lines_length_mm(lines))
         emit('proc', state='done',
              svg=_current_svg.decode('utf-8', 'replace') if _current_svg else svg,
              composition=_composition_payload(),
              total=len(lines),
-             length_mm=round(svg_io.lines_length_mm(lines)),
+             length_mm=length_mm,
              backend='generator',
              per_pen=[{'name': pen.name, 'colour': pen.colour, 'count': len(lines)}])
+        ev.emit('success', shapes=len(lines), length_mm=length_mm)
     except Exception as exc:
         emit('proc', state='error', msg=str(exc))
+        ev.emit('error', level=logging.ERROR, error=str(exc))
 
 @app.route('/api/generate/list')
 def api_generate_list():
@@ -2110,7 +2205,7 @@ def api_generate():
     seed = int(data.get('seed', params.get('seed', 0)) or 0)
     _clear_last_proc_events()
     _process_thread = threading.Thread(
-        target=_generate_worker, args=(gid, params, seed), daemon=True)
+        target=_generate_worker, args=(gid, params, seed, g.request_id), daemon=True)
     _process_thread.start()
     return jsonify(ok=True)
 
@@ -2222,7 +2317,8 @@ def api_export():
 
 
 if __name__ == '__main__':
-    host = '100.111.89.104'
+    host = '127.0.0.1'
     port = 7438
     print(f'Plotter server running at http://{host}:{port}')
+    LOG.info('server.start', extra={'fields': {'host': host, 'port': port}})
     app.run(host=host, port=port, debug=False, threaded=True)
