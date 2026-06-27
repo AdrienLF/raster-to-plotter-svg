@@ -131,7 +131,8 @@ _placement   = {'x': 0.0, 'y': 0.0}  # mm offset from page top-left
 _project        = get_or_create('default')
 _drawing        = None    # last engine.Drawing produced
 _process_thread = None
-_process_lock   = threading.Lock()
+# Serializes worker validation/start with project transition check/mutation.
+_operation_lock = threading.Lock()
 _segmentation_adapter = None
 
 def _project_public(p):
@@ -157,9 +158,7 @@ def _project_public(p):
 
 def _switch_project(pid):
     global _project, _drawing, _current_svg, _placement
-    _clear_events()
-    _clear_last_proc_events()
-    _clear_last_plot_events()
+    _reset_events('proc', 'state')
     _project = get_or_create(pid)
     _drawing = None
     _current_svg = None
@@ -492,29 +491,28 @@ def _image_from_data_url(value):
 
 def emit(t, **kw):
     evt = {'t': t, **kw}
-    if t in ('proc', 'state'):
-        _last_events[t] = evt
     try:
         with _subscribers_lock:
-            subscribers = list(_subscribers)
+            if t in ('proc', 'state'):
+                _last_events[t] = evt
+            for q in _subscribers:
+                try:
+                    q.put_nowait(evt)
+                except queue.Full:
+                    pass
     except Exception:
-        subscribers = []
-    for q in subscribers:
-        try:
-            q.put_nowait(evt)
-        except queue.Full:
-            pass
+        pass
 
 def _subscribe_events():
     q = queue.Queue(maxsize=300)
-    for key in ('proc', 'state'):
-        evt = _last_events.get(key)
-        if evt:
-            try:
-                q.put_nowait(evt)
-            except queue.Full:
-                pass
     with _subscribers_lock:
+        for key in ('proc', 'state'):
+            evt = _last_events.get(key)
+            if evt:
+                try:
+                    q.put_nowait(evt)
+                except queue.Full:
+                    pass
         _subscribers.add(q)
     return q
 
@@ -522,23 +520,31 @@ def _unsubscribe_events(q):
     with _subscribers_lock:
         _subscribers.discard(q)
 
-def _clear_events():
-    with _subscribers_lock:
-        subscribers = list(_subscribers)
-    for q in subscribers:
+def _clear_events_locked():
+    for q in _subscribers:
         while True:
             try:
                 q.get_nowait()
             except queue.Empty:
                 break
 
+def _clear_events():
+    with _subscribers_lock:
+        _clear_events_locked()
+
+def _reset_events(*cached_event_types):
+    with _subscribers_lock:
+        _clear_events_locked()
+        for key in cached_event_types:
+            _last_events.pop(key, None)
+
 def _clear_last_plot_events():
-    for key in ('state',):
-        _last_events.pop(key, None)
+    with _subscribers_lock:
+        _last_events.pop('state', None)
 
 def _clear_last_proc_events():
-    for key in ('proc',):
-        _last_events.pop(key, None)
+    with _subscribers_lock:
+        _last_events.pop('proc', None)
 
 # ── SVG → polylines ───────────────────────────────────────────────────────────
 
@@ -1520,40 +1526,40 @@ def plot_job_route():
 @app.route('/api/plot', methods=['POST'])
 def plot():
     global _plot_thread, _stop_event
-    _sync_current_svg_from_composition()
-    if _current_svg is None:
-        return jsonify(error='No SVG loaded'), 400
-    if _plot_thread and _plot_thread.is_alive():
-        return jsonify(error='Already plotting'), 400
-    _clear_events()
-    _clear_last_plot_events()
-    _stop_event.clear()
-    job = _create_plot_job(_current_svg, cfg.copy(), {'x': 0.0, 'y': 0.0})
-    _plot_thread = threading.Thread(
-        target=_plot_worker, args=(job, g.request_id), daemon=True
-    )
-    _plot_thread.start()
-    return jsonify(ok=True, job=_plot_job_public(job))
+    with _operation_lock:
+        _sync_current_svg_from_composition()
+        if _current_svg is None:
+            return jsonify(error='No SVG loaded'), 400
+        if _plot_thread and _plot_thread.is_alive():
+            return jsonify(error='Already plotting'), 400
+        _reset_events('state')
+        _stop_event.clear()
+        job = _create_plot_job(_current_svg, cfg.copy(), {'x': 0.0, 'y': 0.0})
+        _plot_thread = threading.Thread(
+            target=_plot_worker, args=(job, g.request_id), daemon=True
+        )
+        _plot_thread.start()
+        return jsonify(ok=True, job=_plot_job_public(job))
 
 @app.route('/api/plot/resume', methods=['POST'])
 def resume_plot():
     global _plot_thread, _stop_event
-    job = _normalised_plot_job(_load_plot_job())
-    public = _plot_job_public(job)
-    if not public.get('exists'):
-        return jsonify(error='No saved plot job'), 404
-    if not public.get('resumable'):
-        return jsonify(error='Saved plot job is not resumable'), 400
-    if _plot_thread and _plot_thread.is_alive():
-        return jsonify(error='Already plotting'), 400
-    _clear_events()
-    _clear_last_plot_events()
-    _stop_event.clear()
-    _plot_thread = threading.Thread(
-        target=_plot_worker, args=(job, g.request_id), daemon=True
-    )
-    _plot_thread.start()
-    return jsonify(ok=True, job=_plot_job_public(job))
+    with _operation_lock:
+        job = _normalised_plot_job(_load_plot_job())
+        public = _plot_job_public(job)
+        if not public.get('exists'):
+            return jsonify(error='No saved plot job'), 404
+        if not public.get('resumable'):
+            return jsonify(error='Saved plot job is not resumable'), 400
+        if _plot_thread and _plot_thread.is_alive():
+            return jsonify(error='Already plotting'), 400
+        _reset_events('state')
+        _stop_event.clear()
+        _plot_thread = threading.Thread(
+            target=_plot_worker, args=(job, g.request_id), daemon=True
+        )
+        _plot_thread.start()
+        return jsonify(ok=True, job=_plot_job_public(job))
 
 @app.route('/api/plot/discard', methods=['POST'])
 def discard_plot_job():
@@ -1596,23 +1602,25 @@ def api_projects():
 
 @app.route('/api/projects', methods=['POST'])
 def api_project_create():
-    blocked = _project_transition_blocked()
-    if blocked:
-        return blocked
-    name = (request.json or {}).get('name') or 'Untitled'
-    p = project_mod.create_project(name)
-    _switch_project(p.id)
-    return jsonify(ok=True, current=_project_public(_project), projects=project_mod.list_projects())
+    with _operation_lock:
+        blocked = _project_transition_blocked()
+        if blocked:
+            return blocked
+        name = (request.json or {}).get('name') or 'Untitled'
+        p = project_mod.create_project(name)
+        _switch_project(p.id)
+        return jsonify(ok=True, current=_project_public(_project), projects=project_mod.list_projects())
 
 @app.route('/api/projects/<pid>/open', methods=['POST'])
 def api_project_open(pid):
-    if not (project_mod.PROJECTS_DIR / pid / 'project.json').exists():
-        return jsonify(error='Unknown project'), 404
-    blocked = _project_transition_blocked()
-    if blocked:
-        return blocked
-    _switch_project(pid)
-    return jsonify(ok=True, current=_project_public(_project), projects=project_mod.list_projects())
+    with _operation_lock:
+        if not (project_mod.PROJECTS_DIR / pid / 'project.json').exists():
+            return jsonify(error='Unknown project'), 404
+        blocked = _project_transition_blocked()
+        if blocked:
+            return blocked
+        _switch_project(pid)
+        return jsonify(ok=True, current=_project_public(_project), projects=project_mod.list_projects())
 
 @app.route('/api/projects/<pid>', methods=['PATCH'])
 def api_project_rename(pid):
@@ -1630,15 +1638,18 @@ def api_project_rename(pid):
 
 @app.route('/api/projects/<pid>', methods=['DELETE'])
 def api_project_delete(pid):
-    if pid == _project.id:
-        blocked = _project_transition_blocked()
-        if blocked:
-            return blocked
-    project_mod.delete_project(pid)
-    if pid == _project.id:
-        remaining = project_mod.list_projects()
-        _switch_project(remaining[0]['id'] if remaining else project_mod.create_project('Untitled').id)
-    return jsonify(ok=True, current=_project_public(_project), projects=project_mod.list_projects())
+    with _operation_lock:
+        if pid == _project.id:
+            blocked = _project_transition_blocked()
+            if blocked:
+                return blocked
+        project_mod.delete_project(pid)
+        if pid == _project.id:
+            remaining = project_mod.list_projects()
+            next_id = (remaining[0]['id'] if remaining
+                       else project_mod.create_project('Untitled').id)
+            _switch_project(next_id)
+        return jsonify(ok=True, current=_project_public(_project), projects=project_mod.list_projects())
 
 @app.route('/api/composition')
 def api_composition():
@@ -2230,27 +2241,30 @@ def _process_worker(pfm_id, params, seed, region_id=None, request_id=None):
 @app.route('/api/process', methods=['POST'])
 def api_process():
     global _process_thread
-    data = request.json or {}
-    pfm_id = data.get('pfm_id') or _project.pfm_id
-    if pfm_id not in REGISTRY:
-        return jsonify(error='Unknown PFM'), 400
-    if _project.image_path is None or not _project.image_path.exists():
-        return jsonify(error='No image loaded'), 400
-    region_id = data.get('region_id') or None
-    if region_id and _project.get_region(region_id) is None:
-        return jsonify(error='Unknown region'), 404
-    if _process_thread and _process_thread.is_alive():
-        return jsonify(error='Already processing'), 409
-    _area_from(data.get('area'))
-    _drawing_set_from(data.get('drawing_set'))
-    params = data.get('params') or {}
-    seed = int(data.get('seed', params.get('seed', 0)) or 0)
-    _clear_last_proc_events()
-    _process_thread = threading.Thread(
-        target=_process_worker, args=(pfm_id, params, seed, region_id, g.request_id),
-        daemon=True)
-    _process_thread.start()
-    return jsonify(ok=True)
+    with _operation_lock:
+        data = request.json or {}
+        pfm_id = data.get('pfm_id') or _project.pfm_id
+        if pfm_id not in REGISTRY:
+            return jsonify(error='Unknown PFM'), 400
+        if _project.image_path is None or not _project.image_path.exists():
+            return jsonify(error='No image loaded'), 400
+        region_id = data.get('region_id') or None
+        if region_id and _project.get_region(region_id) is None:
+            return jsonify(error='Unknown region'), 404
+        if _process_thread and _process_thread.is_alive():
+            return jsonify(error='Already processing'), 409
+        _area_from(data.get('area'))
+        _drawing_set_from(data.get('drawing_set'))
+        params = data.get('params') or {}
+        seed = int(data.get('seed', params.get('seed', 0)) or 0)
+        _clear_last_proc_events()
+        _process_thread = threading.Thread(
+            target=_process_worker,
+            args=(pfm_id, params, seed, region_id, g.request_id),
+            daemon=True,
+        )
+        _process_thread.start()
+        return jsonify(ok=True)
 
 # ── Generate step (rule-based drawing, no input image) ──────────────────────────
 
@@ -2307,19 +2321,20 @@ def api_generate_schema(gid):
 @app.route('/api/generate', methods=['POST'])
 def api_generate():
     global _process_thread
-    data = request.json or {}
-    gid = data.get('generator_id')
-    if gid not in GENERATORS:
-        return jsonify(error='Unknown generator'), 400
-    if _process_thread and _process_thread.is_alive():
-        return jsonify(error='Already busy'), 409
-    params = data.get('params') or {}
-    seed = int(data.get('seed', params.get('seed', 0)) or 0)
-    _clear_last_proc_events()
-    _process_thread = threading.Thread(
-        target=_generate_worker, args=(gid, params, seed, g.request_id), daemon=True)
-    _process_thread.start()
-    return jsonify(ok=True)
+    with _operation_lock:
+        data = request.json or {}
+        gid = data.get('generator_id')
+        if gid not in GENERATORS:
+            return jsonify(error='Unknown generator'), 400
+        if _process_thread and _process_thread.is_alive():
+            return jsonify(error='Already busy'), 409
+        params = data.get('params') or {}
+        seed = int(data.get('seed', params.get('seed', 0)) or 0)
+        _clear_last_proc_events()
+        _process_thread = threading.Thread(
+            target=_generate_worker, args=(gid, params, seed, g.request_id), daemon=True)
+        _process_thread.start()
+        return jsonify(ok=True)
 
 @app.route('/api/area', methods=['GET', 'POST'])
 def api_area():

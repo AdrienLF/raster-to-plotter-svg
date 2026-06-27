@@ -2,6 +2,8 @@ import queue
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event, Thread
+from unittest.mock import patch
 
 from engine import project as project_mod
 import web.server as server
@@ -94,6 +96,73 @@ class ProjectsApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(server._project.id, current_id)
+
+    def test_delete_current_is_blocked_while_processing(self):
+        current_id = server._project.id
+        project_file = project_mod.PROJECTS_DIR / current_id / "project.json"
+        server._process_thread = AliveThread()
+
+        response = self.client.delete(f"/api/projects/{current_id}")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(server._project.id, current_id)
+        self.assertTrue(project_file.exists())
+
+    def test_worker_start_waits_for_project_transition(self):
+        transition_entered = Event()
+        allow_transition = Event()
+        worker_started = Event()
+        real_create_project = project_mod.create_project
+        responses = {}
+
+        def blocking_create_project(name):
+            transition_entered.set()
+            if not allow_transition.wait(5):
+                raise RuntimeError("project transition was not released")
+            return real_create_project(name)
+
+        class WorkerThread:
+            def __init__(self, **kwargs):
+                pass
+
+            def start(self):
+                worker_started.set()
+
+            def is_alive(self):
+                return True
+
+        def create_project_request():
+            with server.app.test_client() as client:
+                responses["project"] = client.post(
+                    "/api/projects", json={"name": "Next"}
+                )
+
+        def generate_request():
+            generator_id = next(iter(server.GENERATORS))
+            with server.app.test_client() as client:
+                responses["generate"] = client.post(
+                    "/api/generate", json={"generator_id": generator_id}
+                )
+
+        project_request = Thread(target=create_project_request)
+        worker_request = Thread(target=generate_request)
+        with (
+            patch.object(project_mod, "create_project", side_effect=blocking_create_project),
+            patch.object(server.threading, "Thread", WorkerThread),
+        ):
+            project_request.start()
+            self.assertTrue(transition_entered.wait(2))
+            worker_request.start()
+            started_during_transition = worker_started.wait(0.2)
+            allow_transition.set()
+            project_request.join(5)
+            worker_request.join(5)
+
+        self.assertFalse(project_request.is_alive())
+        self.assertFalse(worker_request.is_alive())
+        self.assertFalse(started_during_transition)
+        self.assertEqual(responses["project"].status_code, 200)
+        self.assertEqual(responses["generate"].status_code, 200)
 
     def test_switch_resets_transient_state(self):
         server._current_svg = b"<svg/>"
