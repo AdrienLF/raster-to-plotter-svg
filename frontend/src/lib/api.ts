@@ -445,7 +445,9 @@ export const api = {
       this.applyComposition(j);
       studio.status = "Ready";
       studio.progress = 1;
-      await this.refreshEstimate(true);
+      // Don't block "Ready" on the plot-time estimate — it re-parses the whole
+      // drawing and can take a moment on dense stipples. Let it fill in after.
+      void this.refreshEstimate(true);
       pushLog(`Generated layer ${layer.name}`);
       return j;
     } catch (e) {
