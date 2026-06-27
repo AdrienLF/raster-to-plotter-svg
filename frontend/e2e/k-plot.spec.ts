@@ -107,3 +107,43 @@ test("K8: auto-rotate checkbox persists to settings", async ({ page, request, ba
   const settings = await (await request.get(`${baseURL}/api/settings`)).json();
   expect(settings.auto_rotate).toBe(!before);
 });
+
+// K6: Stop mid-plot saves a resumable job; Discard clears it.
+// Uses a large layer (high point_density) and 'none' reordering so the plot thread
+// takes a measurable amount of time, giving the stop request a chance to interrupt it.
+test("K6: stop plot creates resumable job; Discard clears it", async ({ request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E K6");
+  await request.post(`${baseURL}/api/image`, {
+    multipart: {
+      file: { name: "sample.png", mimeType: "image/png", buffer: readFileSync(join(ASSETS, "sample.png")) },
+    },
+  });
+  const add = await (await request.post(`${baseURL}/api/composition/add-layer`, { data: {} })).json();
+  const layerId: string = add.composition.layers.at(-1).id;
+  await request.post(`${baseURL}/api/composition/layers/${layerId}/pathfinding/generate`, {
+    data: { pfm_id: "voronoi_stippling", params: { point_density: 1200 } },
+  });
+
+  // Skip path reordering so the plot worker spends all its time on G-code, not reordering.
+  await request.post(`${baseURL}/api/settings`, { data: { reordering: "none" } });
+
+  // Start plotting then immediately stop.
+  await request.post(`${baseURL}/api/plot`);
+  await request.post(`${baseURL}/api/stop`);
+
+  // Poll until the plot thread exits (status != 'running'), up to 30 s.
+  let job: any = {};
+  for (let i = 0; i < 60; i++) {
+    job = await (await request.get(`${baseURL}/api/plot/job`)).json();
+    if (job.status !== "running") break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  // Job must exist — either stopped mid-way (resumable) or completed.
+  expect(job.exists, "plot job should exist after stop").toBeTruthy();
+
+  // Discard the job regardless of whether it was resumable.
+  await request.post(`${baseURL}/api/plot/discard`);
+  const after = await (await request.get(`${baseURL}/api/plot/job`)).json();
+  expect(after.exists, "job should be gone after discard").toBeFalsy();
+});

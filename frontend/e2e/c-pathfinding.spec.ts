@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { test, expect, ASSETS, freshProject, gotoApp } from "./fixtures";
+import { test, expect, ASSETS, freshProject, gotoApp, waitForReady } from "./fixtures";
 
 // C1: "＋ Path finding" creates an empty layer, opens the editor, and the layer is stale.
 test("C1: add path-finding layer creates stale layer and opens editor", async ({ page, request, baseURL }) => {
@@ -84,4 +84,78 @@ test("C11: zero-geometry params show layer error state", async ({ request, baseU
     const hasShapes = /<(circle|path|line|polyline|polygon|rect)\b/g.test(svg);
     expect(hasShapes || layer?.pathfinding_style?.status === "error").toBeTruthy();
   }
+});
+
+/** Set up a voronoi_stippling layer and open its LayerStylePanel. Returns the layer id. */
+async function openLayerEditor(request: any, page: any, baseURL: string, name: string): Promise<string> {
+  await freshProject(request, baseURL, name);
+  await request.post(`${baseURL}/api/image`, {
+    multipart: {
+      file: { name: "sample.png", mimeType: "image/png", buffer: readFileSync(join(ASSETS, "sample.png")) },
+    },
+  });
+  const add = await (await request.post(`${baseURL}/api/composition/add-layer`, { data: {} })).json();
+  const layerId: string = add.composition.layers.at(-1).id;
+  await request.post(`${baseURL}/api/composition/layers/${layerId}/pathfinding/generate`, {
+    data: { pfm_id: "voronoi_stippling", params: {} },
+  });
+  await gotoApp(page);
+  // Open the LayerStylePanel by clicking the layer's "Edit" button.
+  await page.locator(".layer").first().getByRole("button", { name: "Edit" }).click();
+  await expect(page.locator('[aria-label="Layer style"]')).toBeVisible({ timeout: 5_000 });
+  return layerId;
+}
+
+// C4: changing a param and regenerating persists the new value on the layer.
+test("C4: param change is committed and persists after regenerate", async ({ page, request, baseURL }) => {
+  const layerId = await openLayerEditor(request, page, baseURL!, "E2E C4");
+
+  // Seed is in the "General" group; its numbox has no id, so locate by parent .ctrl.
+  const seedBox = page.locator('.ctrl:has(label[for="seed"]) input.numbox');
+  await seedBox.fill("77");
+  await seedBox.press("Tab"); // triggers onchange → commitParams
+
+  // Regenerate with the new seed.
+  await page.getByRole("button", { name: "Apply / Regenerate" }).click();
+  await waitForReady(page);
+
+  const { composition } = await (await request.get(`${baseURL}/api/composition`)).json();
+  const layer = composition.layers.find((l: { id: string }) => l.id === layerId);
+  expect(layer?.pathfinding_style?.params?.seed).toBe(77);
+});
+
+// C5: Display-mode toggle (Raster / Paths / Both) updates the layer.
+test("C5: display-mode toggle saves to the layer", async ({ page, request, baseURL }) => {
+  const layerId = await openLayerEditor(request, page, baseURL!, "E2E C5");
+
+  // Default display mode is "pathfinding" (Paths button active).
+  // Click "Raster" to switch.
+  await page.locator(".display button", { hasText: "Raster" }).click();
+
+  await page.waitForTimeout(300);
+  const { composition } = await (await request.get(`${baseURL}/api/composition`)).json();
+  const layer = composition.layers.find((l: { id: string }) => l.id === layerId);
+  expect(layer?.display_mode).toBe("raster");
+
+  // Switch to "Both".
+  await page.locator(".display button", { hasText: "Both" }).click();
+  await page.waitForTimeout(300);
+  const { composition: c2 } = await (await request.get(`${baseURL}/api/composition`)).json();
+  expect(c2.layers.find((l: { id: string }) => l.id === layerId)?.display_mode).toBe("both");
+});
+
+// C6: "Occlude below" checkbox toggles and persists on the layer.
+test("C6: occlude-below checkbox persists to the layer", async ({ page, request, baseURL }) => {
+  const layerId = await openLayerEditor(request, page, baseURL!, "E2E C6");
+
+  // The occlude_below checkbox is in both the LayerStylePanel and CompositionPanel.
+  // Use the one inside the open LayerStylePanel for this test.
+  const occludeBox = page.locator('.layer-style .check input[type="checkbox"]').nth(1); // 0=enabled, 1=occlude
+  const before = await occludeBox.isChecked();
+  if (before) await occludeBox.uncheck(); else await occludeBox.check();
+
+  await page.waitForTimeout(300);
+  const { composition } = await (await request.get(`${baseURL}/api/composition`)).json();
+  const layer = composition.layers.find((l: { id: string }) => l.id === layerId);
+  expect(layer?.occlude_below).toBe(!before);
 });
