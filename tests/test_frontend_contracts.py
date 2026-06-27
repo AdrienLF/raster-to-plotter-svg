@@ -7,6 +7,52 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendContractsTest(unittest.TestCase):
+    def test_app_boots_before_connecting_event_stream(self):
+        app = (ROOT / "frontend/src/App.svelte").read_text(encoding="utf-8")
+        match = re.search(
+            r"onMount\(\(\) => \{(?P<body>.*?)\n  \}\);",
+            app,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(match)
+        body = match.group("body")
+        self.assertIn("let es: EventSource | null = null", body)
+        self.assertRegex(
+            body,
+            r"void api\.boot\(\)\s*\.then\(\(\) => \{\s*es = connectStream\(\);\s*\}\)\s*\.catch",
+        )
+        self.assertEqual(body.count("connectStream()"), 1)
+        self.assertIn('pushLog("Boot error: "', body)
+        self.assertIn('studio.status = "Error"', body)
+        self.assertIn("studio.processing = false", body)
+        self.assertIn("return () => es?.close()", body)
+
+    def test_switch_project_resets_transient_state_before_boot(self):
+        api_ts = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
+        match = re.search(
+            r"async switchProject\(payload: any\) \{(?P<body>.*?)\n  \},",
+            api_ts,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(match)
+        before_boot, separator, _ = match.group("body").partition("await this.boot();")
+        self.assertTrue(separator)
+        self.assertIn("this.applyProject(payload)", before_boot)
+        for reset in (
+            "studio.previewSvg = null",
+            "studio.stats = null",
+            "studio.plotProgress = null",
+            "studio.plotEstimate = null",
+            "studio.processing = false",
+            "studio.plotting = false",
+            "studio.progress = 0",
+            'studio.status = "Idle"',
+            'studio.step = "composition"',
+        ):
+            self.assertIn(reset, before_boot)
+
     def test_svg_upload_does_not_trigger_plot_estimate(self):
         api_ts = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
         match = re.search(

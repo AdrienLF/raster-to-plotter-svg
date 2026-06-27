@@ -120,6 +120,11 @@ export const api = {
     studio.previewSvg = null;
     studio.stats = null;
     studio.plotProgress = null;
+    studio.plotEstimate = null;
+    studio.processing = false;
+    studio.plotting = false;
+    studio.progress = 0;
+    studio.status = "Idle";
     studio.step = "composition";
     await this.boot();
   },

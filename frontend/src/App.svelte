@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { studio } from "./lib/state.svelte";
+  import { studio, pushLog } from "./lib/state.svelte";
   import { api, connectStream } from "./lib/api";
   import { isSvgFile } from "./lib/files";
   import type { AlignMode } from "./lib/placement";
@@ -23,9 +23,18 @@
   let fileInput: HTMLInputElement;
 
   onMount(() => {
-    api.boot().catch((e) => console.error(e));
-    const es = connectStream();
-    return () => es.close();
+    let es: EventSource | null = null;
+    void api.boot()
+      .then(() => {
+        es = connectStream();
+      })
+      .catch((e) => {
+        studio.processing = false;
+        studio.status = "Error";
+        pushLog("Boot error: " + (e instanceof Error ? e.message : String(e)));
+        console.error(e);
+      });
+    return () => es?.close();
   });
 
   function pickImage() {
