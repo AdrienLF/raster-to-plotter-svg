@@ -62,6 +62,35 @@ test("J3: exported SVG width/height match the composition page", async ({ reques
   expect(svg).toContain(`height="${h}mm"`);
 });
 
+// J5 [P]: export time for a multi-layer drawing stays within soft budget.
+test("J5: export SVG latency for a multi-layer drawing", async ({ request, baseURL, recordPerf }) => {
+  await freshProject(request, baseURL!, "E2E J5");
+  await request.post(`${baseURL}/api/image`, {
+    multipart: {
+      file: { name: "sample.png", mimeType: "image/png", buffer: readFileSync(join(ASSETS, "sample.png")) },
+    },
+  });
+  // Two layers with moderate density for a "heavy" export fixture.
+  for (const pfm of ["voronoi_stippling", "hatch"] as const) {
+    const add = await (await request.post(`${baseURL}/api/composition/add-layer`, { data: {} })).json();
+    const lid: string = add.composition.layers.at(-1).id;
+    await request.post(`${baseURL}/api/composition/layers/${lid}/pathfinding/generate`, {
+      data: { pfm_id: pfm, params: pfm === "voronoi_stippling" ? { point_density: 500 } : {} },
+    });
+  }
+
+  const t0 = Date.now();
+  const r = await request.get(`${baseURL}/api/export`);
+  const duration_ms = Date.now() - t0;
+  expect(r.ok(), "export should succeed").toBeTruthy();
+  expect((await r.text())).toMatch(/^<svg\s/);
+
+  recordPerf({ story: "J5", duration_ms });
+  const budget = 5_000;
+  if (duration_ms > budget) console.warn(`[perf] J5: export ${duration_ms}ms > budget ${budget}ms (soft)`);
+  console.log(`[perf] J5: export ${duration_ms}ms`);
+});
+
 // J4: hidden layers are excluded — when all layers are hidden, Export is disabled in the UI.
 // (The API would fall back to _drawing; the UI gate is the user-visible protection.)
 test("J4: hidden-only composition disables Export SVG in the UI", async ({ page, request, baseURL }) => {

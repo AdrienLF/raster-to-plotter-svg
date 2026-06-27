@@ -108,6 +108,37 @@ test("K8: auto-rotate checkbox persists to settings", async ({ page, request, ba
   expect(settings.auto_rotate).toBe(!before);
 });
 
+// K9 [P]: path-reorder estimate latency for a large drawing.
+test("K9: nearest-neighbour reorder estimate latency", async ({ request, baseURL, recordPerf }) => {
+  await freshProject(request, baseURL!, "E2E K9");
+  await request.post(`${baseURL}/api/image`, {
+    multipart: {
+      file: { name: "sample.png", mimeType: "image/png", buffer: readFileSync(join(ASSETS, "sample.png")) },
+    },
+  });
+  const add = await (await request.post(`${baseURL}/api/composition/add-layer`, { data: {} })).json();
+  const layerId: string = add.composition.layers.at(-1).id;
+  await request.post(`${baseURL}/api/composition/layers/${layerId}/pathfinding/generate`, {
+    data: { pfm_id: "voronoi_stippling", params: { point_density: 800 } },
+  });
+
+  await request.post(`${baseURL}/api/settings`, { data: { reordering: "none" } });
+  const t0 = Date.now();
+  await request.get(`${baseURL}/api/plot/estimate`);
+  const none_ms = Date.now() - t0;
+
+  await request.post(`${baseURL}/api/settings`, { data: { reordering: "nearest" } });
+  const t1 = Date.now();
+  const est = await (await request.get(`${baseURL}/api/plot/estimate`)).json();
+  const nearest_ms = Date.now() - t1;
+  expect(est.total_shapes, "estimate should report shapes").toBeGreaterThan(0);
+
+  recordPerf({ story: "K9", duration_ms: nearest_ms });
+  const budget = 10_000;
+  if (nearest_ms > budget) console.warn(`[perf] K9: nearest-estimate ${nearest_ms}ms > budget ${budget}ms (soft)`);
+  console.log(`[perf] K9: none=${none_ms}ms nearest=${nearest_ms}ms`);
+});
+
 // K6: Stop mid-plot saves a resumable job; Discard clears it.
 // Uses a large layer (high point_density) and 'none' reordering so the plot thread
 // takes a measurable amount of time, giving the stop request a chance to interrupt it.

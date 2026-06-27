@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { test, expect, ASSETS, freshProject, gotoApp, importImage } from "./fixtures";
+import { test, expect, ASSETS, freshProject, gotoApp, importImage, waitForReady } from "./fixtures";
 
 // L1: SSE progress bar appears during a PF run and disappears on completion.
 test("L1: progress bar visible during path-finding, gone when idle", async ({ page, request, baseURL }) => {
@@ -32,6 +32,28 @@ test("L2: status badge reflects GPU/CPU backend", async ({ page, request, baseUR
   const badgeText = await page.locator(".badge").textContent();
   expect(badgeText).toContain(expectedPrefix);
   expect(badgeText).toContain(backend);
+});
+
+// L4 [U]: progress feedback latency — time from "Run path finding" click to first progress bar.
+test("L4: progress bar appears within 1 s of starting path finding", async ({ page, request, baseURL, recordPerf }) => {
+  await freshProject(request, baseURL!, "E2E L4");
+  await gotoApp(page);
+  await importImage(page, join(ASSETS, "sample.png"));
+
+  const t0 = Date.now();
+  await page.locator('button[title="Run path finding"]').click();
+
+  // The progress bar (.status .bar) appears as soon as the first SSE progress event arrives.
+  await expect(page.locator(".status .bar")).toBeVisible({ timeout: 5_000 });
+  const latency_ms = Date.now() - t0;
+
+  // Wait for the run to finish so the test cleans up properly.
+  await waitForReady(page);
+
+  recordPerf({ story: "L4", duration_ms: latency_ms });
+  const budget = 1_000; // 1 s soft budget: user should see feedback in under a second
+  if (latency_ms > budget) console.warn(`[perf] L4: first-progress ${latency_ms}ms > budget ${budget}ms (soft)`);
+  console.log(`[perf] L4: first-progress latency ${latency_ms}ms`);
 });
 
 // L3: starting a second process while one is running is handled gracefully —

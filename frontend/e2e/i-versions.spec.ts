@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { join } from "path";
 import { test, expect, ASSETS, freshProject, gotoApp, importImage, runPathFinding } from "./fixtures";
 
@@ -82,4 +83,30 @@ test("I4: version thumbnail is served without error", async ({ page, request, ba
   const r = await request.get(`${baseURL}${thumbSrc}`);
   expect(r.ok()).toBeTruthy();
   expect(r.headers()["content-type"]).toMatch(/image\/png/i);
+});
+
+// I5 [P]: version save latency (includes thumbnail generation from the drawing).
+test("I5: version save latency", async ({ request, baseURL, recordPerf }) => {
+  // Set up a project with pathfinding so _drawing is populated (required for save).
+  await freshProject(request, baseURL!, "E2E I5");
+  await request.post(`${baseURL}/api/image`, {
+    multipart: {
+      file: { name: "sample.png", mimeType: "image/png", buffer: readFileSync(join(ASSETS, "sample.png")) },
+    },
+  });
+  const add = await (await request.post(`${baseURL}/api/composition/add-layer`, { data: {} })).json();
+  const layerId: string = add.composition.layers.at(-1).id;
+  await request.post(`${baseURL}/api/composition/layers/${layerId}/pathfinding/generate`, {
+    data: { pfm_id: "voronoi_stippling", params: { point_density: 500 } },
+  });
+
+  const t0 = Date.now();
+  const r = await request.post(`${baseURL}/api/versions`, { data: { name: "I5 perf" } });
+  const duration_ms = Date.now() - t0;
+  expect(r.ok(), "version save should succeed").toBeTruthy();
+
+  recordPerf({ story: "I5", duration_ms });
+  const budget = 3_000;
+  if (duration_ms > budget) console.warn(`[perf] I5: save ${duration_ms}ms > budget ${budget}ms (soft)`);
+  console.log(`[perf] I5: version save ${duration_ms}ms`);
 });

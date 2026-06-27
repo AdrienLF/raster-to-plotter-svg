@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { join } from "path";
 import { test, expect, ASSETS, freshProject, gotoApp } from "./fixtures";
 
@@ -60,4 +61,23 @@ test("B6: unsupported file type rejected by API", async ({ request, baseURL }) =
   expect(r.status()).toBe(400);
   const j = await r.json();
   expect(j.error).toMatch(/not a readable image/i);
+});
+
+// B5 [P]: large image (6000×4000) upload stays within soft budget; viewport stays responsive.
+test("B5: large image upload performance", async ({ request, baseURL, recordPerf }) => {
+  await freshProject(request, baseURL!, "E2E B5");
+
+  const t0 = Date.now();
+  const r = await request.post(`${baseURL}/api/image`, {
+    multipart: {
+      file: { name: "large.jpg", mimeType: "image/jpeg", buffer: readFileSync(join(ASSETS, "large.jpg")) },
+    },
+  });
+  const duration_ms = Date.now() - t0;
+  expect(r.ok(), "large image upload should succeed").toBeTruthy();
+
+  recordPerf({ story: "B5", duration_ms });
+  const budget = 20_000; // 20 s soft budget for a 375 KB JPEG of 6000×4000
+  if (duration_ms > budget) console.warn(`[perf] B5: upload ${duration_ms}ms > budget ${budget}ms (soft)`);
+  console.log(`[perf] B5: upload ${duration_ms}ms`);
 });
