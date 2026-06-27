@@ -195,6 +195,27 @@ def _replace_selected_composition_layer(svg, name, kind, source):
     _sync_current_svg_from_composition()
     return layer
 
+def _set_workflow_layer(svg, name, kind, source):
+    """Generate and path finding are separate workflows: never overwrite one with
+    the other.
+
+    Reuse the selected layer only when it is on the same side of that divide —
+    both generator layers, or both non-generator (image / raster / svg /
+    path-finding). Otherwise add a new layer. This keeps the in-place tuning loop
+    (re-generate / auto-redraw updates the active layer) while guaranteeing a
+    generator never clobbers path-finding/image work, and vice versa.
+    """
+    comp = _composition()
+    selected = comp.selected_layer()
+    same_side = selected is not None and (selected.kind == 'generate') == (kind == 'generate')
+    if same_side:
+        layer = replace_selected_layer(comp, svg, name=name, kind=kind, source=source)
+    else:
+        layer = comp.add_layer(svg, name=name, kind=kind, source=source)
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    return layer
+
 def _composition_payload():
     return _composition().to_dict(include_svg=True)
 
@@ -1758,8 +1779,11 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
     drawing = pfm.run(img, _project.area, _project.drawing_set, params, seed=seed,
                       on_progress=on_progress)
     if wide is not None:
-        wide.set(shapes=drawing.total(),
-                 length_mm=round(svg_io.estimate_path_length_mm(drawing)))
+        try:  # logging is best-effort — never let metric extraction break generation
+            wide.set(shapes=drawing.total(),
+                     length_mm=round(svg_io.estimate_path_length_mm(drawing)))
+        except Exception:
+            pass
     svg = svg_io.to_svg(drawing)
     layer.svg = svg
     layer.width, layer.height = parse_svg_size_mm(svg)
@@ -1955,7 +1979,7 @@ def api_segmentation_predict():
         return jsonify(error='At least one positive point is required'), 400
     adapter = _get_segmentation_adapter()
     w = WideEvent('worker.segmentation', g.request_id)
-    w.set(model=adapter.model, n_pos=len(positive), n_neg=len(negative))
+    w.set(model=getattr(adapter, 'model', '-'), n_pos=len(positive), n_neg=len(negative))
     try:
         mask = adapter.predict(image, positive, negative)
     except Exception as exc:
@@ -2069,7 +2093,7 @@ def _process_worker(pfm_id, params, seed, region_id=None, request_id=None):
         _drawing = drawing
         _project.pfm_id = pfm_id
         _project.params = validate(pfm.params, params)
-        layer = _replace_selected_composition_layer(
+        layer = _set_workflow_layer(
             svg,
             pfm.name,
             'pathfinding',
@@ -2162,7 +2186,7 @@ def _generate_worker(gid, params, seed, request_id=None):
         pen = _project.drawing_set.active()[0]
         svg = svg_io.lines_to_svg(lines, w_mm, h_mm, colour=pen.colour, stroke_mm=pen.stroke_mm)
         _drawing = None                       # generators output flat polylines, not a Drawing
-        _replace_selected_composition_layer(
+        _set_workflow_layer(
             svg,
             gen['name'],
             'generate',

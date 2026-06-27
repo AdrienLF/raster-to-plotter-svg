@@ -291,6 +291,50 @@ class SmartRegionLayerApiTest(unittest.TestCase):
         self.assertNotIn("<path", new["svg"])
 
 
+class WorkflowLayerSeparationTest(unittest.TestCase):
+    """Generate and path finding are separate workflows: neither overwrites the
+    other's layer. _set_workflow_layer reuses the selected layer only when it is
+    on the same side of the generate/non-generate divide."""
+
+    SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" '
+           'viewBox="0 0 10 10"></svg>')
+
+    def setUp(self):
+        self._orig_dir = project_mod.PROJECTS_DIR
+        self._orig_project = server._project
+        self._tmp = tempfile.TemporaryDirectory()
+        project_mod.PROJECTS_DIR = Path(self._tmp.name)
+        server._project = project_mod.create_project("Workflows")
+
+    def tearDown(self):
+        server._project = self._orig_project
+        project_mod.PROJECTS_DIR = self._orig_dir
+        self._tmp.cleanup()
+
+    def test_generate_does_not_clobber_selected_pathfinding_layer(self):
+        comp = server._project.composition
+        pf = comp.add_layer(self.SVG, "Face", "pathfinding", {})  # becomes selected
+        server._set_workflow_layer(self.SVG, "Spokes", "generate",
+                                   {"generator_id": "spokes_and_circles"})
+        self.assertEqual(len(comp.layers), 2)
+        self.assertTrue(any(l.id == pf.id and l.kind == "pathfinding" for l in comp.layers))
+        self.assertTrue(any(l.kind == "generate" for l in comp.layers))
+
+    def test_regenerate_replaces_selected_generate_layer_in_place(self):
+        comp = server._project.composition
+        gen = comp.add_layer(self.SVG, "Spokes", "generate", {})  # becomes selected
+        server._set_workflow_layer(self.SVG, "Spokes", "generate", {})
+        self.assertEqual(len(comp.layers), 1)
+        self.assertEqual(comp.layers[0].id, gen.id)
+
+    def test_pathfinding_does_not_clobber_selected_generate_layer(self):
+        comp = server._project.composition
+        gen = comp.add_layer(self.SVG, "Spokes", "generate", {})  # becomes selected
+        server._set_workflow_layer(self.SVG, "Face", "pathfinding", {})
+        self.assertEqual(len(comp.layers), 2)
+        self.assertTrue(any(l.id == gen.id and l.kind == "generate" for l in comp.layers))
+
+
 class LocalSam2SetupTest(unittest.TestCase):
     def test_status_auto_installs_missing_package_and_downloads_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
