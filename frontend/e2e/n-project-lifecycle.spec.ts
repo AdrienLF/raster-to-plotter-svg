@@ -82,7 +82,7 @@ test("N2: a project-switch boot failure is surfaced without an unhandled rejecti
   await page.getByRole("button", { name: "Project" }).click();
   await page.getByRole("button", { name: "Lifecycle Failure Target", exact: true }).click();
 
-  await expect(page.locator(".status .state")).toHaveText("Error");
+  await expect(page.locator(".status .state")).toHaveText("Boot error: boot failed");
   await expect(page.locator(".status .log")).toContainText("Boot error: boot failed");
   expect(pageErrors).toEqual([]);
 });

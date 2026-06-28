@@ -526,7 +526,7 @@ Import `DRAWING_SHAPE`, `getComposition`, `waitForComposition`, and `waitForGene
 Opening Generate never creates a layer. For E2, E4, E5, and E6, click Generate before waiting for the initial backend output:
 
 ```typescript
-await page.getByRole("button", { name: "Generate" }).click();
+await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
 const initial = await waitForGeneratedLayer(request, baseURL!);
 await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
 ```
@@ -536,7 +536,7 @@ E2 asserts that the explicit default generation contains `DRAWING_SHAPE`. E6 sta
 For E3, explicitly create the first generate layer and capture its ID and SVG. With Auto checked, change `rot1_x` and poll until that same layer has the changed `source.params.rot1_x` and a different SVG. Wait for UI `Ready` before the next interaction. Then disable Auto, change `rot1_x` again, preserve the 600 ms debounce-negative window, and assert that the persisted SVG and source params are unchanged. Finally, click Generate and poll until the same layer reflects the pending param and changed SVG:
 
 ```typescript
-await page.getByRole("button", { name: "Generate" }).click();
+await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
 const initial = await waitForGeneratedLayer(request, baseURL!);
 const layerId = initial.layers[0].id;
 const initialSvg = initial.layers[0].svg;
@@ -562,7 +562,7 @@ await page.waitForTimeout(600);
 expect((await getComposition(request, baseURL!)).layers.find((layer) => layer.id === layerId)?.svg)
   .toBe(autoSvg);
 
-await page.getByRole("button", { name: "Generate" }).click();
+await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
 await waitForComposition(
   request,
   baseURL!,
@@ -626,7 +626,7 @@ await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_0
 
 // After selecting firstLayerId, disabling Auto, capturing originalSvg/stableLayerIds,
 // changing rot1_x to 60, and proving the backend is still unchanged:
-await page.getByRole("button", { name: "Generate" }).click();
+await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
 await waitForComposition(
   request,
   baseURL!,
@@ -663,18 +663,22 @@ After clicking Reset, poll until the same layer's crop is null.
 
 - [ ] **Step 4: Synchronize M2 and plot metrics**
 
-In M2, explicitly click Generate, wait for `waitForGeneratedLayer(request, baseURL!)`, then wait for UI `Ready` so the SSE `done` event has populated stats. Assert the Save button is enabled before clicking it.
+Use the exact accessible selector `getByRole("button", { name: "✦ Generate", exact: true })` for every generator action so the `▾Generate` panel-title button cannot also match. In M2, explicitly click that action, wait for `waitForGeneratedLayer(request, baseURL!)`, then wait for UI `Ready` so the SSE `done` event has populated stats. Assert the Save button is enabled before clicking it.
 
-In M3 and `plot-estimate.spec.ts`, wait for the estimate API and UI metric together:
+In M3 and `plot-estimate.spec.ts`, install a listener for the UI's estimate response before navigating to Plot. Assert that response and its payload, then check the rendered metric. Do not issue a second estimate request from the test:
 
 ```typescript
-await expect
-  .poll(async () => {
-    const response = await request.get(`${baseURL}/api/plot/estimate`);
-    if (!response.ok()) return 0;
-    return (await response.json()).paths ?? 0;
-  }, { message: "wait for plot estimate", timeout: 30_000 })
-  .toBeGreaterThan(0);
+const estimateResponsePromise = page.waitForResponse(
+  (response) =>
+    response.url().endsWith("/api/plot/estimate") &&
+    response.request().method() === "GET",
+  { timeout: 60_000 },
+);
+await gotoStep(page, "Plot");
+const estimateResponse = await estimateResponsePromise;
+expect(estimateResponse.ok(), "plot estimate response should succeed").toBeTruthy();
+const estimate = await estimateResponse.json();
+expect(estimate.paths, "plot estimate should report paths").toBeGreaterThan(0);
 await expect(pathCount).not.toHaveText("—", { timeout: 10_000 });
 ```
 
@@ -695,7 +699,7 @@ Expected: all tests in the four files pass, including the E7 grouping test.
 ```powershell
 git add frontend/e2e
 git add docs/superpowers/plans/2026-06-27-e2e-branch-stabilization.md
-git commit -m "test: align generator journeys with manual-first flow"
+git commit -m "test: fix full-suite Playwright contracts"
 ```
 
 ### Task 6: Correct E2E coverage documentation

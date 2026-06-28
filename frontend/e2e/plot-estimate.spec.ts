@@ -25,20 +25,19 @@ test("K1+K5: estimate, then plot against the fake serial", async ({ page, reques
 
   await gotoApp(page);
 
-  // K1 — Plot step auto-refreshes the estimate; the metrics grid fills in.
+  // K1 — Plot step auto-refreshes the estimate; observe that request and rendered metric.
+  const estimateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/plot/estimate") &&
+      response.request().method() === "GET",
+    { timeout: 60_000 },
+  );
   await gotoStep(page, "Plot");
+  const estimateResponse = await estimateResponsePromise;
+  expect(estimateResponse.ok(), "plot estimate response should succeed").toBeTruthy();
+  const estimate = await estimateResponse.json();
+  expect(estimate.paths, "plot estimate should report paths").toBeGreaterThan(0);
   const paths = page.locator(".metrics div", { hasText: "Paths" }).locator("strong");
-  await expect
-    .poll(
-      async () => {
-        const response = await request.get(api("/api/plot/estimate"));
-        if (!response.ok()) return 0;
-        const estimate = await response.json();
-        return estimate.paths ?? 0;
-      },
-      { message: "wait for plot estimate", timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
   await expect(paths).not.toHaveText("—", { timeout: 10_000 });
 
   // Reset captured G-code so the assertion below only sees this plot's commands.

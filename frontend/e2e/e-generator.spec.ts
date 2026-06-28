@@ -30,7 +30,7 @@ test("E2: default generator produces drawing geometry", async ({ page, request, 
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
 
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const initial = await waitForGeneratedLayer(request, baseURL!);
   expect(initial.layers[0]?.svg).toMatch(DRAWING_SHAPE);
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
@@ -44,7 +44,7 @@ test("E3: Auto redraws an existing layer and Auto off requires explicit generati
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
 
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const initial = await waitForGeneratedLayer(request, baseURL!);
   const layerId = initial.layers[0].id;
   const initialSvg = initial.layers[0].svg;
@@ -80,7 +80,7 @@ test("E3: Auto redraws an existing layer and Auto off requires explicit generati
   expect(unchanged.source.params.rot1_x, "Auto off should preserve persisted params").toBe(45);
 
   // Explicit generation applies the pending parameter to that same layer.
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const explicitlyRedrawn = await waitForComposition(
     request,
     baseURL!,
@@ -102,7 +102,7 @@ test("E4: rot1_x knob changes output; reverting produces the same SVG (determini
 
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const initial = await waitForGeneratedLayer(request, baseURL!);
   const svg1: string = initial.layers[0]?.svg ?? "";
   expect(svg1, "initial generate must produce geometry").toMatch(DRAWING_SHAPE);
@@ -149,7 +149,7 @@ test("E6: spokes_and_circles generate timing", async ({ page, request, baseURL, 
   const t0 = Date.now();
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   await waitForGeneratedLayer(request, baseURL!);
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
   const duration_ms = Date.now() - t0;
@@ -184,7 +184,7 @@ test("E5: target selector — new layer vs existing layer", async ({ page, reque
 
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const initial = await waitForComposition(
     request,
     baseURL!,
@@ -206,7 +206,7 @@ test("E5: target selector — new layer vs existing layer", async ({ page, reque
     "wait for new-layer target selection",
     10_000,
   );
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const withNewLayer = await waitForComposition(
     request,
     baseURL!,
@@ -243,7 +243,7 @@ test("E5: target selector — new layer vs existing layer", async ({ page, reque
   expect(beforeExplicit.source.params.rot1_x).not.toBe(60);
 
   // Generate replaces the original layer in place while preserving both layer IDs.
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   const updated = await waitForComposition(
     request,
     baseURL!,

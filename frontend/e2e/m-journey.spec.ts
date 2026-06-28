@@ -67,7 +67,7 @@ test("M2: generator-only artwork — generate, version, export", async ({ page, 
   // Jump to Generate and explicitly run the default spokes_and_circles generator.
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
-  await page.getByRole("button", { name: "Generate" }).click();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
   await waitForGeneratedLayer(request, baseURL!);
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
 
@@ -101,20 +101,19 @@ test("M3: photo → plot dry-run — import, path finding, estimate, plot to com
   // Run path finding via UI — waits for SSE "Ready".
   await runPathFinding(page);
 
-  // Navigate to Plot step — estimate auto-refreshes.
+  // Navigate to Plot step and observe its own estimate request.
+  const estimateResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/plot/estimate") &&
+      response.request().method() === "GET",
+    { timeout: 60_000 },
+  );
   await gotoStep(page, "Plot");
+  const estimateResponse = await estimateResponsePromise;
+  expect(estimateResponse.ok(), "plot estimate response should succeed").toBeTruthy();
+  const estimate = await estimateResponse.json();
+  expect(estimate.paths, "plot estimate should report paths").toBeGreaterThan(0);
   const pathCount = page.locator(".metrics div", { hasText: "Paths" }).locator("strong");
-  await expect
-    .poll(
-      async () => {
-        const response = await request.get(`${baseURL}/api/plot/estimate`);
-        if (!response.ok()) return 0;
-        const estimate = await response.json();
-        return estimate.paths ?? 0;
-      },
-      { message: "wait for plot estimate", timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
   await expect(pathCount).not.toHaveText("—", { timeout: 10_000 });
 
   // Clear serial log, start the plot, and wait for the fake plotter to finish.
