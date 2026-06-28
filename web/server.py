@@ -1827,6 +1827,10 @@ def api_composition_layer_raster(layer_id):
     image = _project.open_region_image(region_id) if region_id else _project.open_image()
     if image is None:
         return jsonify(error='No region image available'), 404
+    # Match what pathfinding analysed (area.prepare_image), so the displayed
+    # raster lines up with the generated paths instead of being stretched to a
+    # different aspect ratio. ponytail: reuses prepare_image, no separate path.
+    image = _project.area.prepare_image(image)
     buf = io.BytesIO()
     image.convert('RGBA').save(buf, format='PNG')
     buf.seek(0)
