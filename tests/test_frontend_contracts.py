@@ -7,6 +7,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendContractsTest(unittest.TestCase):
+    def test_goto_app_retries_only_transient_boot_fetch_failures(self):
+        fixtures = (ROOT / "frontend/e2e/fixtures.ts").read_text(encoding="utf-8")
+        match = re.search(
+            r"export async function gotoApp\(page: Page\) \{(?P<body>.*?)\n\}",
+            fixtures,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(match)
+        body = match.group("body")
+        self.assertIn("BOOT_ATTEMPT_TIMEOUT", fixtures)
+        self.assertIn('page.on("requestfailed", onRequestFailed)', body)
+        self.assertIn('page.off("requestfailed", onRequestFailed)', body)
+        self.assertIn("attempt < 2", body)
+        self.assertIn("isTransientBootFailure", body)
+        self.assertIn('log === "Boot error: Failed to fetch"', fixtures)
+        self.assertIn('failure.url.includes("/api/")', fixtures)
+        self.assertIn("page.reload({", body)
+        self.assertIn("throw new Error", body)
+
+        projects = (ROOT / "frontend/e2e/a-projects.spec.ts").read_text(encoding="utf-8")
+        self.assertIn('route.abort("failed")', projects)
+
+        lifecycle = (ROOT / "frontend/e2e/n-project-lifecycle.spec.ts").read_text(encoding="utf-8")
+        n2 = lifecycle[lifecycle.index('test("N2:'):]
+        self.assertLess(n2.index("await gotoApp(page)"), n2.index('page.route("**/api/pfm/list"'))
+
     def test_app_boots_before_connecting_event_stream(self):
         app = (ROOT / "frontend/src/App.svelte").read_text(encoding="utf-8")
         match = re.search(

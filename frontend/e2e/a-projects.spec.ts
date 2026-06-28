@@ -51,6 +51,15 @@ test("A4: delete current project; another becomes current", async ({ page, reque
 // UX: the canvas has no visible on-screen guidance for new users (empty state should add a hint).
 test("A6: empty state disables Run, Plot, and Export", async ({ page, request, baseURL }) => {
   await freshProject(request, baseURL!, "Empty");
+  let failFirstBootFetch = true;
+  await page.route("**/api/pfm/list", async (route) => {
+    if (failFirstBootFetch && route.request().method() === "GET") {
+      failFirstBootFetch = false;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
   await gotoApp(page);
 
   await expect(page.locator('button[title="Run path finding"]')).toBeDisabled();

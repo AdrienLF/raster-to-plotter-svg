@@ -185,7 +185,7 @@ uv run --with pytest python -m pytest tests/test_projects.py tests/test_event_st
 uv run --with pytest python -m pytest -q
 ```
 
-Expected: 9 focused project/event tests pass, then all 104 backend tests pass.
+Expected: 9 focused project/event tests pass, then all 105 backend tests pass.
 
 - [ ] **Step 5: Commit the backend lifecycle fix**
 
@@ -403,7 +403,7 @@ export async function waitForGeneratedLayer(
 }
 ```
 
-Delete the old exact-placeholder `gotoApp()` implementation. Keep `waitForBoot()` only if another test imports it; otherwise remove it.
+Delete the old exact-placeholder `gotoApp()` implementation. Keep `waitForBoot()` only if another test imports it; otherwise remove it. Bound each initial boot attempt to 10 seconds and allow one reload only when the UI reports `Boot error: Failed to fetch` and Playwright observed a failed `/api/` request; HTTP boot errors must fail immediately with request diagnostics.
 
 - [ ] **Step 3: Run L2 and H2 to verify the boot boundary is GREEN**
 
@@ -797,7 +797,7 @@ npm run build
 Set-Location ..
 ```
 
-Expected: 104 backend tests pass; Svelte reports 0 errors; Vite exits 0.
+Expected: 105 backend tests pass; Svelte reports 0 errors; Vite exits 0.
 
 - [ ] **Step 2: Run the complete Playwright suite**
 

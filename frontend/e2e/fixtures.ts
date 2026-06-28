@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { test as base, expect, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import { appendFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -8,6 +8,61 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const ASSETS = join(HERE, "assets");
 const PERF_FILE = join(HERE, "perf", "results.jsonl");
 export const DRAWING_SHAPE = /<(?:[A-Za-z_][\w.-]*:)?(?:path|line|polyline|circle)(?=[\s/>])/;
+const BOOT_ATTEMPT_TIMEOUT = 10_000;
+
+type BootOutcome =
+  | { kind: "ready" }
+  | { kind: "error"; log: string }
+  | { kind: "timeout" }
+  | { kind: "navigation-error"; log: string };
+type BootRequestFailure = { url: string; error: string };
+
+function isTransientBootFailure(log: string, failures: BootRequestFailure[]) {
+  return (
+    log === "Boot error: Failed to fetch" &&
+    failures.some((failure) => failure.url.includes("/api/"))
+  );
+}
+
+async function runBootAttempt(
+  page: Page,
+  navigate: () => Promise<unknown>,
+): Promise<BootOutcome> {
+  const ready = page
+    .waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/versions") &&
+        response.request().method() === "GET" &&
+        response.ok(),
+      { timeout: BOOT_ATTEMPT_TIMEOUT },
+    )
+    .then(() => ({ kind: "ready" }) as const)
+    .catch(() => ({ kind: "timeout" }) as const);
+
+  try {
+    await navigate();
+  } catch (error) {
+    return {
+      kind: "navigation-error",
+      log: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const bootError = page
+    .locator(".status .log")
+    .filter({ hasText: /^Boot error:/ });
+  const failed = bootError
+    .waitFor({ state: "visible", timeout: BOOT_ATTEMPT_TIMEOUT })
+    .then(
+      async () =>
+        ({
+          kind: "error",
+          log: (await bootError.textContent())?.trim() ?? "",
+        }) as const,
+    )
+    .catch(() => ({ kind: "timeout" }) as const);
+  return Promise.race([ready, failed]);
+}
 
 // ── App-level helpers ───────────────────────────────────────────────────────
 
@@ -32,14 +87,61 @@ export async function freshProject(request: APIRequestContext, baseURL: string, 
 
 /** Load the app and wait for boot() to populate the backend badge. */
 export async function gotoApp(page: Page) {
-  const booted = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/api/versions") &&
-      response.request().method() === "GET" &&
-      response.ok(),
-  );
-  await Promise.all([booted, page.goto("/")]);
-  await expect(page.locator(".status .badge")).not.toContainText("…", { timeout: 20_000 });
+  let failures: BootRequestFailure[] = [];
+  const onRequestFailed = (request: Request) => {
+    failures.push({
+      url: request.url(),
+      error: request.failure()?.errorText ?? "unknown network failure",
+    });
+  };
+  page.on("requestfailed", onRequestFailed);
+
+  try {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      failures = [];
+      const outcome = await runBootAttempt(page, () =>
+        attempt === 1
+          ? page.goto("/", { timeout: BOOT_ATTEMPT_TIMEOUT })
+          : page.reload({ timeout: BOOT_ATTEMPT_TIMEOUT }),
+      );
+      if (outcome.kind === "ready") {
+        await expect(page.locator(".status .badge")).not.toContainText("…", {
+          timeout: 10_000,
+        });
+        return;
+      }
+
+      const visibleLog =
+        (
+          await page
+            .locator(".status .log")
+            .textContent()
+            .catch(() => "")
+        )?.trim() ?? "";
+      const log =
+        outcome.kind === "error" || outcome.kind === "navigation-error"
+          ? outcome.log
+          : visibleLog;
+      if (attempt < 2 && isTransientBootFailure(log, failures)) {
+        console.warn(
+          `[e2e] transient boot fetch failed; reloading once (${failures.map((failure) => `${failure.url}: ${failure.error}`).join(", ")})`,
+        );
+        await page.waitForTimeout(250);
+        continue;
+      }
+
+      const detail = failures.length
+        ? failures
+            .map((failure) => `${failure.url}: ${failure.error}`)
+            .join(", ")
+        : "no failed requests observed";
+      throw new Error(
+        `gotoApp boot attempt ${attempt} failed (${outcome.kind}; ${log || "no boot error"}; ${detail})`,
+      );
+    }
+  } finally {
+    page.off("requestfailed", onRequestFailed);
+  }
 }
 
 /** Wait for the boot() sequence (its trailing GET /api/versions) to settle. */
