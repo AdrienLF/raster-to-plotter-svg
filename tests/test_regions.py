@@ -354,7 +354,10 @@ class LocalSam2SetupTest(unittest.TestCase):
                 install.side_effect = lambda: installed.__setitem__("ready", True)
                 download.side_effect = lambda: checkpoint.write_bytes(b"model")
 
-                status = adapter.status()
+                adapter.status()  # kicks off async background prepare
+                if adapter._setup_thread:
+                    adapter._setup_thread.join(timeout=5)
+                status = adapter.status()  # reflects completed setup
 
             self.assertTrue(status["available"])
             install.assert_called_once()
@@ -366,7 +369,10 @@ class LocalSam2SetupTest(unittest.TestCase):
 
             with mock.patch.object(adapter, "_has_module", return_value=False), \
                 mock.patch.object(adapter, "_install_sam2", side_effect=RuntimeError("install failed")):
-                status = adapter.status()
+                adapter.status()  # kicks off async background prepare
+                if adapter._setup_thread:
+                    adapter._setup_thread.join(timeout=5)
+                status = adapter.status()  # reflects the failed setup
 
             self.assertFalse(status["available"])
             self.assertEqual(status["setup_state"], "error")

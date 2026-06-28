@@ -334,6 +334,9 @@ class LocalSam2Adapter:
         self._predictor = None
         self._error = None
         self.setup_state = 'idle'
+        self.setup_progress = 0.0
+        self._setup_lock = threading.Lock()
+        self._setup_thread = None
         model = model or cfg.get('sam_model') or os.environ.get('SAM2_MODEL') or 'sam2.1_hiera_tiny'
         # Explicit checkpoint/config (constructor or env) pin paths and skip the
         # registry — power-user escape hatch kept from the original adapter.
@@ -362,7 +365,10 @@ class LocalSam2Adapter:
         self._predictor = None
         self._error = None
         self.setup_state = 'idle'
+        self.setup_progress = 0.0
         self._apply_model(model)
+        # Start fetching the newly chosen model so the UI can show progress.
+        self.prepare_async()
 
     def _has_module(self, name):
         import importlib.util
@@ -397,11 +403,18 @@ class LocalSam2Adapter:
         import urllib.request
 
         self.setup_state = 'downloading'
+        self.setup_progress = 0.0
         target = Path(self.checkpoint)
         target.parent.mkdir(parents=True, exist_ok=True)
         part = target.with_suffix(target.suffix + '.part')
-        urllib.request.urlretrieve(self.checkpoint_url, part)
+
+        def hook(blocks, block_size, total):
+            if total and total > 0:
+                self.setup_progress = min(1.0, blocks * block_size / total)
+
+        urllib.request.urlretrieve(self.checkpoint_url, part, reporthook=hook)
         part.replace(target)
+        self.setup_progress = 1.0
 
     def _ensure_setup(self):
         if not self.auto_setup:
@@ -414,6 +427,28 @@ class LocalSam2Adapter:
         if not Path(self.checkpoint).exists():
             self._download_checkpoint()
         self.setup_state = 'ready'
+
+    def prepare_async(self):
+        """Run install/download in the background so status() can report progress
+        without blocking the request. No-op if already ready or in flight."""
+        if not self.auto_setup or self._predictor is not None:
+            return
+        with self._setup_lock:
+            if self._setup_thread and self._setup_thread.is_alive():
+                return
+            if self.setup_state == 'ready' and Path(self.checkpoint).exists():
+                return
+
+            def run():
+                try:
+                    self._ensure_setup()
+                except Exception as exc:  # surfaced via status()/setup_state
+                    self._error = str(exc)
+                    self.setup_state = 'error'
+
+            self._error = None
+            self._setup_thread = threading.Thread(target=run, daemon=True)
+            self._setup_thread.start()
 
     @staticmethod
     def _device_for(torch):
@@ -451,43 +486,40 @@ class LocalSam2Adapter:
             raise RuntimeError(self._error) from exc
 
     def status(self):
+        # Non-blocking: never install/download inline (that would hang the
+        # request and app boot). Report current state and keep a background
+        # prepare running so the UI can poll for progress.
         if self._predictor is not None:
             return {'available': True, 'backend': 'sam2', 'model': self.model,
-                    'models': list(self.MODELS), 'setup_state': 'ready'}
-        try:
-            self._ensure_setup()
-            has_sam = self._has_module('sam2')
-            has_torch = self._has_module('torch')
-            has_torchvision = self._has_module('torchvision')
-        except Exception as exc:
-            self._error = str(exc)
-            self.setup_state = 'error'
-            has_sam = self._has_module('sam2')
-            has_torch = self._has_module('torch')
-            has_torchvision = self._has_module('torchvision')
+                    'models': list(self.MODELS), 'setup_state': 'ready', 'progress': 1.0}
         missing = []
-        if not has_sam:
+        if not self._has_module('sam2'):
             missing.append('sam2')
-        if not has_torch:
+        if not self._has_module('torch'):
             missing.append('torch')
-        if not has_torchvision:
+        if not self._has_module('torchvision'):
             missing.append('torchvision')
         if not Path(self.checkpoint).exists():
             missing.append('checkpoint')
         available = not missing and self._error is None
+        if not available and self._error is None and self.auto_setup:
+            self.prepare_async()  # keep working toward ready between polls
+        setup_state = 'ready' if available else self.setup_state
         payload = {
             'available': available,
             'backend': 'sam2',
             'model': self.model,
             'models': list(self.MODELS),
             'checkpoint': self.checkpoint,
-            'setup_state': 'ready' if available else self.setup_state,
+            'setup_state': setup_state,
+            'progress': round(self.setup_progress, 3),
             'auto_setup': self.auto_setup,
         }
         if self._error:
             payload['setup_state'] = 'error'
             payload['error'] = self._error
-        elif missing:
+        elif missing and not self.auto_setup:
+            # Genuinely stuck (no auto-setup) — surface what's missing as an error.
             payload['error'] = 'Missing ' + ', '.join(missing)
         return payload
 

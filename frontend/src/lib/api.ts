@@ -61,6 +61,28 @@ function normalizeReordering(value: any) {
 let genPending = false;
 let genTimer: ReturnType<typeof setTimeout> | null = null;
 let projectGeneration = 0;
+let samPollTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Poll SAM setup status every 1.5s until ready/error, so the UI shows live
+// install/download progress without blocking any request.
+function scheduleSamPoll() {
+  if (samPollTimer) return;
+  samPollTimer = setTimeout(async () => {
+    samPollTimer = null;
+    let s: any;
+    try {
+      s = await jget("/api/segmentation/status");
+    } catch {
+      return; // give up quietly; re-selecting the model retriggers polling
+    }
+    studio.segmentationStatus = s;
+    if (!s.available && s.setup_state !== "error" && s.auto_setup !== false) {
+      scheduleSamPoll();
+    } else if (s.available) {
+      pushLog("AI segmentation ready");
+    }
+  }, 1500);
+}
 
 function beginProjectGeneration() {
   projectGeneration += 1;
@@ -120,6 +142,7 @@ export const api = {
       this.applyProject(projects);
       this.applyRegions(regions);
       studio.segmentationStatus = segStatus;
+      this.watchSamSetup();
       await this.selectPfm(studio.pfmId, generation);
       if (!isCurrentProject(generation)) return false;
       await this.selectGenerator(studio.generatorId, generation);
@@ -371,8 +394,19 @@ export const api = {
   async setSamModel(model: string) {
     try {
       studio.segmentationStatus = await jpost("/api/segmentation/model", { model });
+      pushLog(`SAM model → ${model.replace("sam2.1_hiera_", "")}`);
+      scheduleSamPoll();
     } catch (e) {
       pushLog("SAM model error: " + (e instanceof Error ? e.message : String(e)));
+    }
+  },
+
+  // Poll segmentation status while the model is still installing/downloading so
+  // the UI reflects live setup progress.
+  watchSamSetup() {
+    const s = studio.segmentationStatus;
+    if (s && !s.available && s.setup_state !== "error" && s.auto_setup !== false) {
+      scheduleSamPoll();
     }
   },
 
@@ -437,27 +471,39 @@ export const api = {
   },
 
   async uploadImage(file: File) {
-    const fd = new FormData();
-    fd.append("file", file);
-    const r = await fetch("/api/image", { method: "POST", body: fd });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "upload failed");
-    studio.imageUrl = j.image_url ?? j.data_url;
-    studio.imageName = j.name;
-    studio.imageW = j.width;
-    studio.imageH = j.height;
-    studio.regions = [];
-    studio.selectedRegionId = null;
-    this.clearRegionDraft();
-    pushLog(`Loaded image ${j.name} (${j.width}×${j.height})`);
+    studio.status = `Loading ${file.name}…`;
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/image", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "upload failed");
+      studio.imageUrl = j.image_url ?? j.data_url;
+      studio.imageName = j.name;
+      studio.imageW = j.width;
+      studio.imageH = j.height;
+      studio.regions = [];
+      studio.selectedRegionId = null;
+      this.clearRegionDraft();
+      studio.status = "Ready";
+      pushLog(`Loaded image ${j.name} (${j.width}×${j.height})`);
+    } catch (e) {
+      studio.status = "Error";
+      pushLog("Image load error: " + (e instanceof Error ? e.message : String(e)));
+      throw e;
+    }
   },
 
   async uploadSvg(file: File) {
+    studio.status = `Loading ${file.name}…`;
     const fd = new FormData();
     fd.append("file", file);
     const r = await fetch("/api/upload", { method: "POST", body: fd });
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "SVG upload failed");
+    if (!r.ok) {
+      studio.status = "Error";
+      throw new Error(j.error || "SVG upload failed");
+    }
     this.applyComposition(j);
     studio.imageUrl = null;
     studio.imageName = j.name;

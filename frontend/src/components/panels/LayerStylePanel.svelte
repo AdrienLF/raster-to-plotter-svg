@@ -23,6 +23,21 @@
     };
   });
   const selectedRegionId = $derived(layer?.region_id ?? "");
+  // Live feedback for SAM model setup (install/download/ready/error).
+  const samSetup = $derived.by(() => {
+    const s = studio.segmentationStatus;
+    if (!s) return null;
+    if (s.available) return { kind: "ready" as const, text: "Model ready", pct: 1 };
+    if (s.setup_state === "error" || s.error)
+      return { kind: "error" as const, text: `AI unavailable: ${s.error ?? "setup failed"}`, pct: 0 };
+    if (s.auto_setup === false)
+      return { kind: "error" as const, text: "AI selection unavailable", pct: 0 };
+    if (s.setup_state === "installing") return { kind: "busy" as const, text: "Installing SAM 2…", pct: 0 };
+    if (s.setup_state === "downloading")
+      return { kind: "busy" as const, text: `Downloading model… ${Math.round((s.progress ?? 0) * 100)}%`, pct: s.progress ?? 0 };
+    return { kind: "busy" as const, text: "Preparing AI model…", pct: 0 };
+  });
+  const samBusy = $derived(samSetup?.kind === "busy");
   const groups = $derived.by(() => {
     const m = new Map<string, Param[]>();
     for (const p of studio.layerStyleSchema) {
@@ -172,9 +187,10 @@
           </div>
           {#if studio.segmentationStatus?.models?.length}
             <label class="sam-model">
-              <span>SAM model</span>
+              <span>SAM model {#if samSetup?.kind === "ready"}<span class="ok-dot" title="Model ready">●</span>{/if}</span>
               <select
                 value={studio.segmentationStatus.model}
+                disabled={samBusy}
                 onchange={(e) => api.setSamModel((e.target as HTMLSelectElement).value)}
               >
                 {#each studio.segmentationStatus.models as m (m)}
@@ -182,6 +198,15 @@
                 {/each}
               </select>
             </label>
+            {#if samSetup && samSetup.kind !== "ready"}
+              <div class="sam-status" class:error={samSetup.kind === "error"}>
+                {#if samSetup.kind === "busy"}<span class="spinner"></span>{/if}
+                <span>{samSetup.text}</span>
+                {#if samSetup.kind === "busy" && samSetup.pct > 0}
+                  <div class="mini-bar"><div class="mini-fill" style:width={`${samSetup.pct * 100}%`}></div></div>
+                {/if}
+              </div>
+            {/if}
           {/if}
           {#if studio.regionSelecting}
             <div class="region-save">
@@ -199,9 +224,7 @@
             </div>
           {/if}
           {#if studio.regionPredicting}
-            <p class="hint">Selecting region…</p>
-          {:else if studio.segmentationStatus?.available === false}
-            <p class="hint">AI selection unavailable: {studio.segmentationStatus.error}</p>
+            <p class="hint"><span class="spinner"></span> Selecting region…</p>
           {:else if studio.regionSelecting}
             <p class="hint">Click the image to include a part; Alt-click or right-click to exclude.</p>
           {/if}
@@ -416,6 +439,47 @@
     color: var(--text-dim);
     font-size: 10px;
     line-height: 1.35;
+  }
+  .sam-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .sam-status.error {
+    color: var(--danger);
+  }
+  .sam-status .mini-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--panel-2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .sam-status .mini-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s;
+  }
+  .ok-dot {
+    color: var(--ok);
+    font-size: 9px;
+  }
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    flex: none;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .error,
   .empty {
