@@ -745,7 +745,7 @@ Run:
 $stories = (Select-String -Path 'frontend\e2e\USER_STORIES.md' -Pattern '(?m)^\- \*\*([A-M][0-9]+) \[' -AllMatches -CaseSensitive).Matches | ForEach-Object { $_.Groups[1].Value }
 Push-Location frontend
 try { $listed = npx playwright test --list } finally { Pop-Location }
-$covered = $listed | Where-Object { $_ -match '^\s+\[chromium\].* › ' } | ForEach-Object { [regex]::Matches($_, '\b([A-M][0-9]+)\b') | ForEach-Object { $_.Groups[1].Value } } | Where-Object { $_ -in $stories } | Sort-Object -Unique
+$covered = $listed | ForEach-Object { if ($_ -match '^\s+\[chromium\].* ›\s*((?:[A-M][0-9]+)(?:\+[A-M][0-9]+)*)\s*:') { $Matches[1] -split '\+' } } | Where-Object { $_ -in $stories } | Sort-Object -Unique
 $deferred = $stories | Where-Object { $_ -notin $covered }
 ($listed | Select-String '^Total:').Line
 "stories=$($stories.Count) covered=$($covered.Count) deferred=$($deferred.Count)"
