@@ -34,8 +34,11 @@ test("K1+K5: estimate, then plot against the fake serial", async ({ page, reques
   );
   await gotoStep(page, "Plot");
   const estimateResponse = await estimateResponsePromise;
-  expect(estimateResponse.ok(), "plot estimate response should succeed").toBeTruthy();
   const estimate = await estimateResponse.json();
+  expect(
+    estimateResponse.ok(),
+    `plot estimate response should succeed (${estimateResponse.status()}: ${estimate.error ?? "unknown error"})`,
+  ).toBeTruthy();
   expect(estimate.paths, "plot estimate should report paths").toBeGreaterThan(0);
   const paths = page.locator(".metrics div", { hasText: "Paths" }).locator("strong");
   await expect(paths).not.toHaveText("—", { timeout: 10_000 });

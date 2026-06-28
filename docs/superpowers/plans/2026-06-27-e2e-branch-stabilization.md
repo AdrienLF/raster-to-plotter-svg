@@ -185,7 +185,7 @@ uv run --with pytest python -m pytest tests/test_projects.py tests/test_event_st
 uv run --with pytest python -m pytest -q
 ```
 
-Expected: 9 focused project/event tests pass, then all 102 backend tests pass.
+Expected: 9 focused project/event tests pass, then all 103 backend tests pass.
 
 - [ ] **Step 5: Commit the backend lifecycle fix**
 
@@ -512,6 +512,7 @@ Expected: all 11 tests pass.
 - Modify: `engine/project.py`
 - Modify: `web/server.py`
 - Modify: `frontend/src/lib/api.ts`
+- Test: `tests/test_plot_estimate.py`
 - Test: `tests/test_versions.py`
 - Test: `tests/test_frontend_contracts.py`
 
@@ -671,7 +672,7 @@ After clicking Reset, poll until the same layer's crop is null.
 
 Use the exact accessible selector `getByRole("button", { name: "✦ Generate", exact: true })` for every generator action so the `▾Generate` panel-title button cannot also match. In M2, explicitly click that action, wait for `waitForGeneratedLayer(request, baseURL!)`, then wait for UI `Ready` so the SSE `done` event has populated stats. Save the version and capture its layer ID/SVG, mutate `rot1_x` until the same layer changes, then load the saved row by its `Load` title. Poll until the original ID/SVG is restored, assert the `rot1_x` control is hydrated back to the saved default `0`, assert UI `Ready`, and verify Save is disabled because snapshot load cleared stale stats before exporting. Hydrate generator ID/schema/params with Auto temporarily suppressed, then restore Auto behind a source-parameter equality guard so loading cannot enqueue a no-op redraw.
 
-The focused M2 run exposed that generator output has no legacy `Drawing`, so version saving must persist the visible composition instead. Cover this with backend regressions: store a real PNG thumbnail plus an immutable `versions/<id>/composition.json` snapshot, keep only that relative path in `project.json`, restore and recompose the snapshot on load, and leave legacy drawing versions on their existing regenerate-on-load path. Validate a snapshot before mutating project/server state and return 409 for missing or corrupt data. Thumbnail parsing must explicitly ignore plot cancellation without clearing the shared stop event. Empty projects must still return 400. On frontend snapshot load, clear preview/stats/plot-derived state, settle at non-processing `Ready`, and skip legacy reprocessing.
+The focused M2 run exposed that generator output has no legacy `Drawing`, so version saving must persist the visible composition instead. Cover this with backend regressions: store a real PNG thumbnail plus an immutable `versions/<id>/composition.json` snapshot, keep only that relative path in `project.json`, restore and recompose the snapshot on load, and leave legacy drawing versions on their existing regenerate-on-load path. Validate a snapshot before mutating project/server state and return 409 for missing or corrupt data. Estimate and thumbnail parsing must explicitly ignore stale plot cancellation without clearing the shared stop event; plot execution must continue to honor cancellation. Empty projects must still return 400. On frontend snapshot load, clear preview/stats/plot-derived state, settle at non-processing `Ready`, and skip legacy reprocessing.
 
 In M3 and `plot-estimate.spec.ts`, install a listener for the UI's estimate response before navigating to Plot. Assert that response and its payload, then check the rendered metric. Do not issue a second estimate request from the test:
 
@@ -684,8 +685,11 @@ const estimateResponsePromise = page.waitForResponse(
 );
 await gotoStep(page, "Plot");
 const estimateResponse = await estimateResponsePromise;
-expect(estimateResponse.ok(), "plot estimate response should succeed").toBeTruthy();
 const estimate = await estimateResponse.json();
+expect(
+  estimateResponse.ok(),
+  `plot estimate response should succeed (${estimateResponse.status()}: ${estimate.error ?? "unknown error"})`,
+).toBeTruthy();
 expect(estimate.paths, "plot estimate should report paths").toBeGreaterThan(0);
 await expect(pathCount).not.toHaveText("—", { timeout: 10_000 });
 ```
@@ -702,14 +706,14 @@ npx playwright test e2e/e-generator.spec.ts e2e/f-composition.spec.ts e2e/m-jour
 
 Expected: all tests in the four files pass, including the E7 grouping test.
 
-Also run `uv run python -m pytest tests/test_versions.py -q` and the focused M2 journey. Expected: generator composition save/load tests pass and M2 completes generate → version save → mutate → snapshot load → export.
+Also run `uv run python -m pytest tests/test_plot_estimate.py tests/test_versions.py -q` and the focused M2 journey. Expected: estimates ignore a stale plot cancellation while plot execution still honors it, generator composition save/load tests pass, and M2 completes generate → version save → mutate → snapshot load → export.
 
 - [ ] **Step 6: Commit the E2E stabilization**
 
 ```powershell
-git add frontend/e2e
+git add frontend/e2e tests/test_plot_estimate.py web/server.py
 git add docs/superpowers/plans/2026-06-27-e2e-branch-stabilization.md
-git commit -m "fix: restore generator controls with snapshots"
+git commit -m "fix: isolate plot cancellation from estimates"
 ```
 
 ### Task 6: Correct E2E coverage documentation
@@ -792,7 +796,7 @@ npm run build
 Set-Location ..
 ```
 
-Expected: 102 backend tests pass; Svelte reports 0 errors; Vite exits 0.
+Expected: 103 backend tests pass; Svelte reports 0 errors; Vite exits 0.
 
 - [ ] **Step 2: Run the complete Playwright suite**
 

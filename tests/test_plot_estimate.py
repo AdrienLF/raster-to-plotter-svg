@@ -15,6 +15,8 @@ class PlotEstimateTest(unittest.TestCase):
         self.old_placement = server._placement
         self.old_cfg = server.cfg.copy()
         self.old_composition = server._project.composition
+        self.old_stop_state = server._stop_event.is_set()
+        server._stop_event.clear()
         server._current_svg = SIMPLE_SVG
         server._placement = {"x": 0.0, "y": 0.0}
         server._project.composition = Composition()
@@ -42,6 +44,10 @@ class PlotEstimateTest(unittest.TestCase):
         server._project.composition = self.old_composition
         server.cfg.clear()
         server.cfg.update(self.old_cfg)
+        if self.old_stop_state:
+            server._stop_event.set()
+        else:
+            server._stop_event.clear()
 
     def test_estimate_current_plot_breaks_down_distance_and_time(self):
         response = self.client.get("/api/plot/estimate")
@@ -67,6 +73,14 @@ class PlotEstimateTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "No SVG loaded")
+
+    def test_estimate_ignores_stale_plot_cancellation(self):
+        server._stop_event.set()
+
+        response = self.client.get("/api/plot/estimate")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["paths"], 1)
 
 
 if __name__ == "__main__":

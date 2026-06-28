@@ -979,8 +979,11 @@ def _dist2(a, b):
 def _dist(a, b):
     return math.sqrt(_dist2(a, b))
 
-def _placed_polylines(svg_bytes, settings, on_progress=None, placement=None):
-    polylines = svg_to_polylines(svg_bytes, settings, on_progress=on_progress)
+def _placed_polylines(svg_bytes, settings, on_progress=None, placement=None,
+                      respect_stop=True):
+    polylines = svg_to_polylines(
+        svg_bytes, settings, on_progress=on_progress, respect_stop=respect_stop
+    )
     place = _placement if placement is None else placement
     ox, oy = place.get('x', 0.0), place.get('y', 0.0)
     if ox or oy:
@@ -1632,7 +1635,9 @@ def plot_estimate():
         return jsonify(error='No SVG loaded'), 400
     try:
         settings = cfg.copy()
-        polylines = _placed_polylines(_current_svg, settings, placement={'x': 0.0, 'y': 0.0})
+        polylines = _placed_polylines(
+            _current_svg, settings, placement={'x': 0.0, 'y': 0.0}, respect_stop=False
+        )
         if not polylines:
             return jsonify(error='No paths found in SVG.'), 400
         return jsonify(ok=True, **_estimate_polylines(polylines, settings))

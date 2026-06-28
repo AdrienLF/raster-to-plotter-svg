@@ -152,8 +152,11 @@ test("M3: photo → plot dry-run — import, path finding, estimate, plot to com
   );
   await gotoStep(page, "Plot");
   const estimateResponse = await estimateResponsePromise;
-  expect(estimateResponse.ok(), "plot estimate response should succeed").toBeTruthy();
   const estimate = await estimateResponse.json();
+  expect(
+    estimateResponse.ok(),
+    `plot estimate response should succeed (${estimateResponse.status()}: ${estimate.error ?? "unknown error"})`,
+  ).toBeTruthy();
   expect(estimate.paths, "plot estimate should report paths").toBeGreaterThan(0);
   const pathCount = page.locator(".metrics div", { hasText: "Paths" }).locator("strong");
   await expect(pathCount).not.toHaveText("—", { timeout: 10_000 });
