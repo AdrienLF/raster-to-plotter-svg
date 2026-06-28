@@ -1,6 +1,18 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { test, expect, ASSETS, DRAWING_SHAPE, freshProject, gotoApp, importImage, runPathFinding, gotoStep, waitForReady } from "./fixtures";
+import {
+  test,
+  expect,
+  ASSETS,
+  DRAWING_SHAPE,
+  freshProject,
+  gotoApp,
+  importImage,
+  runPathFinding,
+  gotoStep,
+  waitForGeneratedLayer,
+  waitForReady,
+} from "./fixtures";
 
 // M1 [R+P]: Import → 2 PF layers (different algorithms) → load pens → export SVG.
 // Skips the SAM2 region step (D-epic, gated on model availability).
@@ -55,14 +67,16 @@ test("M2: generator-only artwork — generate, version, export", async ({ page, 
   // Jump to Generate step and auto-generate spokes_and_circles.
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
-  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+  await waitForGeneratedLayer(request, baseURL!);
 
   // Versions panel is collapsed by default in the Generate step — open it.
   await page.getByRole("button", { name: "Versions" }).click();
 
   // Save a named version (＋ Save is enabled once studio.stats is set by the done event).
   await page.locator('input[placeholder="Version name…"]').fill("M2 snapshot");
-  await page.getByRole("button", { name: "＋ Save" }).click();
+  const saveVersion = page.getByRole("button", { name: "＋ Save" });
+  await expect(saveVersion).toBeEnabled();
+  await saveVersion.click();
   await expect(page.locator(".ver .name", { hasText: "M2 snapshot" })).toBeVisible({ timeout: 10_000 });
 
   // Export — the generated SVG should be a valid document.
@@ -88,7 +102,18 @@ test("M3: photo → plot dry-run — import, path finding, estimate, plot to com
   // Navigate to Plot step — estimate auto-refreshes.
   await gotoStep(page, "Plot");
   const pathCount = page.locator(".metrics div", { hasText: "Paths" }).locator("strong");
-  await expect(pathCount).not.toHaveText("—", { timeout: 20_000 });
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(`${baseURL}/api/plot/estimate`);
+        if (!response.ok()) return 0;
+        const estimate = await response.json();
+        return estimate.paths ?? 0;
+      },
+      { message: "wait for plot estimate", timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  await expect(pathCount).not.toHaveText("—", { timeout: 10_000 });
 
   // Clear serial log, start the plot, and wait for the fake plotter to finish.
   await request.delete(`${baseURL}/api/_test/serial-log`);

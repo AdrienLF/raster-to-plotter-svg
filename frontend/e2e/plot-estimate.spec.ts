@@ -28,7 +28,18 @@ test("K1+K5: estimate, then plot against the fake serial", async ({ page, reques
   // K1 — Plot step auto-refreshes the estimate; the metrics grid fills in.
   await gotoStep(page, "Plot");
   const paths = page.locator(".metrics div", { hasText: "Paths" }).locator("strong");
-  await expect(paths).not.toHaveText("—", { timeout: 20_000 });
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(api("/api/plot/estimate"));
+        if (!response.ok()) return 0;
+        const estimate = await response.json();
+        return estimate.paths ?? 0;
+      },
+      { message: "wait for plot estimate", timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  await expect(paths).not.toHaveText("—", { timeout: 10_000 });
 
   // Reset captured G-code so the assertion below only sees this plot's commands.
   await request.delete(api("/api/_test/serial-log"));

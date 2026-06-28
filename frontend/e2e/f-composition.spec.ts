@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { test, expect, ASSETS, freshProject, gotoApp, gotoStep } from "./fixtures";
+import { test, expect, ASSETS, freshProject, gotoApp, gotoStep, waitForComposition } from "./fixtures";
 
 /** Set up a project with one generated PF layer; returns the layer id. */
 async function setupOneLayer(request: any, baseURL: string, name: string): Promise<string> {
@@ -143,17 +143,27 @@ test("F5: crop 'To content' sets crop rect; Reset clears it", async ({ page, req
   // "To content" tightens the crop to the SVG geometry bounding box.
   await page.getByRole("button", { name: "To content" }).click();
 
-  await page.waitForTimeout(300);
-  const { composition } = await (await request.get(`${baseURL}/api/composition`)).json();
-  const layer = composition.layers.find((l: { id: string }) => l.id === id);
+  const cropped = await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => composition.layers.find((layer) => layer.id === id)?.crop != null,
+    "wait for crop-to-content",
+    10_000,
+  );
+  const layer = cropped.layers.find((layer) => layer.id === id);
   expect(layer?.crop, "'To content' should set a non-null crop rect").not.toBeNull();
 
   // "Reset" button appears after a crop is applied.
   await expect(page.getByRole("button", { name: "Reset" })).toBeVisible({ timeout: 3_000 });
   await page.getByRole("button", { name: "Reset" }).click();
 
-  await page.waitForTimeout(300);
-  const { composition: c2 } = await (await request.get(`${baseURL}/api/composition`)).json();
-  const l2 = c2.layers.find((l: { id: string }) => l.id === id);
+  const reset = await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => composition.layers.find((layer) => layer.id === id)?.crop === null,
+    "wait for crop reset",
+    10_000,
+  );
+  const l2 = reset.layers.find((layer) => layer.id === id);
   expect(l2?.crop, "Reset should clear the crop back to null").toBeNull();
 });
