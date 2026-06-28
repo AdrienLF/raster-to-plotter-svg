@@ -21,7 +21,7 @@ from engine.genframe import apply_framework
 from engine.composition import compose_visible_svg, layer_svg_zip, parse_svg_size_mm, replace_selected_layer
 from engine.regions import mask_bbox
 from engine import project as project_mod
-from engine.project import Project, get_or_create
+from engine.project import Project, VersionSnapshotError, get_or_create
 from engine.versioning import render_polyline_thumbnail
 
 app = Flask(__name__)
@@ -742,7 +742,7 @@ def _circle_meta(element, se, px_to_mm):
     return cx, cy, r
 
 
-def svg_to_polylines(svg_bytes, settings, on_progress=None):
+def svg_to_polylines(svg_bytes, settings, on_progress=None, respect_stop=True):
     """
     Parse SVG → polylines in machine mm coords (X right, Y negative = down).
     svgelements handles all transforms; coordinates come out as 96 dpi px.
@@ -774,7 +774,7 @@ def svg_to_polylines(svg_bytes, settings, on_progress=None):
     for idx, element in enumerate(drawable):
         if on_progress:
             on_progress(idx, total_el)
-        if _stop_event.is_set():
+        if respect_stop and _stop_event.is_set():
             break
 
         # True circles become a single native G2 arc at plot time. Keep a polygon
@@ -2511,7 +2511,9 @@ def api_versions():
             svg = _ensure_current_svg() if _composition_has_visible_layers() else None
             if svg is None:
                 return jsonify(error='Nothing to save — process a drawing first'), 400
-            polylines = svg_to_polylines(svg, {**cfg, 'reordering': 'none'})
+            polylines = svg_to_polylines(
+                svg, {**cfg, 'reordering': 'none'}, respect_stop=False
+            )
             if not polylines:
                 return jsonify(error='Nothing to save — process a drawing first'), 400
             thumbnail = render_polyline_thumbnail(polylines)
@@ -2548,8 +2550,11 @@ def api_version_load(vid):
     version = _project.get_version(vid)
     if not version:
         return jsonify(error='Unknown version'), 404
-    if not _project.load_version(vid):
-        return jsonify(error='Unknown version'), 404
+    try:
+        if not _project.load_version(vid):
+            return jsonify(error='Unknown version'), 404
+    except VersionSnapshotError as exc:
+        return jsonify(error=str(exc)), 409
     p = get_pfm(_project.pfm_id)
     payload = dict(ok=True, pfm_id=_project.pfm_id,
                    params=_project.params, schema=schema_json(p.params),

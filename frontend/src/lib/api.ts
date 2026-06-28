@@ -632,6 +632,10 @@ export const api = {
     pushLog("Loaded version");
     if (j.composition) {
       this.applyComposition(j);
+      studio.previewSvg = null;
+      studio.stats = null;
+      studio.plotEstimate = null;
+      studio.plotProgress = null;
       studio.processing = false;
       studio.progress = 1;
       studio.status = "Ready";

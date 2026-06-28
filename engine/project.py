@@ -27,6 +27,10 @@ WORKSPACE = Path.home() / ".plotter_studio"
 PROJECTS_DIR = WORKSPACE / "projects"
 
 
+class VersionSnapshotError(ValueError):
+    pass
+
+
 class Project:
     def __init__(self, pid: str):
         self.id = pid
@@ -281,15 +285,26 @@ class Project:
         v = self.get_version(vid)
         if not v:
             return False
+        restored_composition = None
+        if v.composition_snapshot:
+            try:
+                snapshot = json.loads(
+                    (self.dir / v.composition_snapshot).read_text(encoding="utf-8")
+                )
+                if not isinstance(snapshot, dict) or not isinstance(snapshot.get("layers"), list):
+                    raise ValueError("invalid composition snapshot")
+                restored_composition = Composition.from_dict(snapshot)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+                raise VersionSnapshotError(
+                    "Version snapshot is unavailable or invalid"
+                ) from exc
+
         self.pfm_id = v.pfm_id
         self.params = dict(v.params)
         self.area = DrawingArea.from_dict(v.area)
         self.drawing_set = DrawingSet.from_dict(v.drawing_set)
-        if v.composition_snapshot:
-            snapshot = json.loads(
-                (self.dir / v.composition_snapshot).read_text(encoding="utf-8")
-            )
-            self.composition = Composition.from_dict(snapshot)
+        if restored_composition is not None:
+            self.composition = restored_composition
             self.save_composition_layers()
         else:
             self.save()

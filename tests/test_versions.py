@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from engine import project as project_mod
+from engine.composition import Composition
 from engine.versioning import Version
 import web.server as server
 
@@ -23,6 +24,7 @@ class VersionApiTest(unittest.TestCase):
         self._orig_current_svg = server._current_svg
         self._orig_composition_dirty = server._composition_dirty
         self._orig_placement = server._placement
+        self._orig_stop_set = server._stop_event.is_set()
 
         self._tmp = tempfile.TemporaryDirectory()
         project_mod.PROJECTS_DIR = Path(self._tmp.name)
@@ -40,6 +42,10 @@ class VersionApiTest(unittest.TestCase):
         server._current_svg = self._orig_current_svg
         server._composition_dirty = self._orig_composition_dirty
         server._placement = self._orig_placement
+        if self._orig_stop_set:
+            server._stop_event.set()
+        else:
+            server._stop_event.clear()
         self._tmp.cleanup()
 
     def add_generator_layer(self):
@@ -93,6 +99,67 @@ class VersionApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "Nothing to save — process a drawing first")
+
+    def test_generator_version_thumbnail_ignores_plot_cancellation(self):
+        self.add_generator_layer()
+        server._stop_event.set()
+
+        response = self.client.post("/api/versions", json={"name": "After stop"})
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        thumbnail_path = server._project.dir / response.get_json()["version"]["thumbnail"]
+        with Image.open(thumbnail_path) as thumbnail:
+            self.assertTrue(
+                any(low < 255 for low, _high in thumbnail.convert("RGB").getextrema())
+            )
+
+    def test_missing_composition_snapshot_load_is_atomic_and_controlled(self):
+        self.add_generator_layer()
+        save_response = self.client.post("/api/versions", json={"name": "Broken snapshot"})
+        version = server._project.get_version(save_response.get_json()["version"]["id"])
+        (server._project.dir / version.composition_snapshot).unlink()
+
+        server._project.pfm_id = "spiral"
+        server._project.params = {"current": 11}
+        server._project.area.width = 123
+        server._project.drawing_set.distribution_type = "single"
+        server._project.composition = Composition()
+        server._project.composition.add_layer(
+            GENERATOR_SVG.replace("M10 10 L90 70", "M5 5 L20 20"),
+            "Current layer",
+            "svg",
+            {"current": True},
+        )
+        before = {
+            "pfm_id": server._project.pfm_id,
+            "params": dict(server._project.params),
+            "area": server._project.area.to_dict(),
+            "drawing_set": server._project.drawing_set.to_dict(),
+            "composition": server._project.composition.to_dict(include_svg=True),
+        }
+        drawing = object()
+        current_svg = b"<svg>current</svg>"
+        server._drawing = drawing
+        server._current_svg = current_svg
+        server._composition_dirty = False
+
+        response = self.client.post(f"/api/versions/{version.id}/load")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.get_json()["error"],
+            "Version snapshot is unavailable or invalid",
+        )
+        self.assertEqual(server._project.pfm_id, before["pfm_id"])
+        self.assertEqual(server._project.params, before["params"])
+        self.assertEqual(server._project.area.to_dict(), before["area"])
+        self.assertEqual(server._project.drawing_set.to_dict(), before["drawing_set"])
+        self.assertEqual(
+            server._project.composition.to_dict(include_svg=True),
+            before["composition"],
+        )
+        self.assertIs(server._drawing, drawing)
+        self.assertEqual(server._current_svg, current_svg)
 
     def test_load_restores_saved_generator_composition_exactly(self):
         self.add_generator_layer()

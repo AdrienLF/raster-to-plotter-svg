@@ -6,11 +6,13 @@ import {
   ASSETS,
   DRAWING_SHAPE,
   freshProject,
+  getComposition,
   gotoApp,
   importImage,
   runPathFinding,
   gotoStep,
   waitForGeneratedLayer,
+  waitForComposition,
   waitForReady,
 } from "./fixtures";
 
@@ -79,9 +81,43 @@ test("M2: generator-only artwork — generate, version, export", async ({ page, 
   const saveVersion = page.getByRole("button", { name: "＋ Save" });
   await expect(saveVersion).toBeEnabled();
   await saveVersion.click();
-  await expect(page.locator(".ver .name", { hasText: "M2 snapshot" })).toBeVisible({ timeout: 10_000 });
+  const versionRow = page.locator(".ver", { hasText: "M2 snapshot" });
+  await expect(versionRow.locator(".name")).toBeVisible({ timeout: 10_000 });
+  const savedComposition = await getComposition(request, baseURL!);
+  const savedLayerId = savedComposition.layers[0].id;
+  const savedSvg = savedComposition.layers[0].svg;
 
-  // Export — the generated SVG should be a valid document.
+  // Mutate the generated layer so loading the snapshot has an observable boundary.
+  const rot1xInput = page.locator('.ctrl:has(label[for="rot1_x"]) input.numbox');
+  await rot1xInput.fill("45");
+  await rot1xInput.press("Tab");
+  await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => {
+      const layer = composition.layers.find((candidate) => candidate.id === savedLayerId);
+      return layer?.source?.params?.rot1_x === 45 && layer.svg !== savedSvg;
+    },
+    "wait for generator mutation before version load",
+    60_000,
+  );
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+
+  await versionRow.locator('button[title="Load"]').click();
+  await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => {
+      const layer = composition.layers.find((candidate) => candidate.id === savedLayerId);
+      return composition.layers.length === 1 && layer?.svg === savedSvg;
+    },
+    "wait for generator composition snapshot restore",
+    60_000,
+  );
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+  await expect(saveVersion).toBeDisabled();
+
+  // Export — the restored generated SVG should be a valid document.
   const r = await request.get(`${baseURL}/api/export`);
   expect(r.ok(), "export should succeed").toBeTruthy();
   const svg = await r.text();
