@@ -344,6 +344,11 @@ class LocalSam2Adapter:
         self._pin_config = config or os.environ.get('SAM2_CONFIG')
         self.package_url = os.environ.get('SAM2_PACKAGE_URL', self.PACKAGE_URL)
         self.auto_setup = os.environ.get('SAM2_AUTO_SETUP', '1') not in ('0', 'false', 'False')
+        # Auto pip-installing the sam2 package pulls torchvision from the default
+        # index, which can replace a CUDA PyTorch with a CPU build — silently
+        # turning the whole engine CPU-only. So package install is opt-in;
+        # checkpoint download (a plain file) stays automatic.
+        self.auto_install = os.environ.get('SAM2_AUTO_INSTALL', '0') not in ('0', 'false', 'False')
         self._apply_model(model if model in self.MODELS else 'sam2.1_hiera_tiny')
 
     def _apply_model(self, model):
@@ -423,6 +428,16 @@ class LocalSam2Adapter:
             name for name in ('sam2', 'torchvision') if not self._has_module(name)
         ]
         if missing_modules:
+            if not self.auto_install:
+                raise RuntimeError(
+                    'SAM 2 needs ' + ', '.join(missing_modules) + '. Install them '
+                    'WITHOUT replacing your GPU PyTorch — match your existing torch '
+                    'build, e.g.: uv pip install torchvision '
+                    '"git+https://github.com/facebookresearch/sam2.git" '
+                    '(add --index-url https://download.pytorch.org/whl/cuXXX for CUDA). '
+                    'Or set SAM2_AUTO_INSTALL=1 to let the app pip-install it '
+                    '(may switch torch to a CPU build).'
+                )
             self._install_sam2()
         if not Path(self.checkpoint).exists():
             self._download_checkpoint()

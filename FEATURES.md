@@ -9,7 +9,7 @@ A running list of what this software does. One line each. Updated on every commi
 ## Regions (segmentation)
 - **AI segmentation** — Click-to-segment the source image into regions (`/api/segmentation/predict`).
 - **SAM model picker** — Choose the SAM 2.1 variant (tiny/small/base_plus/large); auto-downloads the checkpoint, choice persisted in settings.
-- **SAM setup feedback** — Model install/download runs in the background (non-blocking) with live status: "Installing…", "Downloading… N%", a ready indicator, and errors surfaced in the panel.
+- **SAM setup feedback** — Model checkpoint download runs in the background (non-blocking) with live status: "Downloading… N%", a ready indicator, and errors surfaced in the panel. The sam2 package is NOT auto-pip-installed by default (it can replace CUDA PyTorch with a CPU build); missing-package errors show manual install instructions. Opt in with `SAM2_AUTO_INSTALL=1`.
 - **Region management** — Create, rename, delete, and select regions; each carries its own mask.
 - **Region masks** — Per-region alpha mask applied to the source for isolated path finding.
 

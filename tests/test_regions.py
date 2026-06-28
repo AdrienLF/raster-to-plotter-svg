@@ -374,6 +374,7 @@ class LocalSam2SetupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = Path(tmp) / "sam2.1_hiera_tiny.pt"
             adapter = server.LocalSam2Adapter(checkpoint=str(checkpoint))
+            adapter.auto_install = True  # opt in to pip-installing the package
             installed = {"ready": False}
 
             def has_module(name):
@@ -395,9 +396,29 @@ class LocalSam2SetupTest(unittest.TestCase):
             install.assert_called_once()
             download.assert_called_once()
 
+    def test_missing_package_without_auto_install_reports_manual_instructions(self):
+        # The safe default: don't pip-install (that can replace CUDA torch with a
+        # CPU build); tell the user how to install instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = server.LocalSam2Adapter(checkpoint=str(Path(tmp) / "missing.pt"))
+            self.assertFalse(adapter.auto_install)
+
+            with mock.patch.object(adapter, "_has_module", return_value=False), \
+                mock.patch.object(adapter, "_install_sam2") as install:
+                adapter.status()
+                if adapter._setup_thread:
+                    adapter._setup_thread.join(timeout=5)
+                status = adapter.status()
+
+            install.assert_not_called()
+            self.assertFalse(status["available"])
+            self.assertEqual(status["setup_state"], "error")
+            self.assertIn("SAM 2 needs", status["error"])
+
     def test_status_reports_setup_error_when_auto_install_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             adapter = server.LocalSam2Adapter(checkpoint=str(Path(tmp) / "missing.pt"))
+            adapter.auto_install = True
 
             with mock.patch.object(adapter, "_has_module", return_value=False), \
                 mock.patch.object(adapter, "_install_sam2", side_effect=RuntimeError("install failed")):
