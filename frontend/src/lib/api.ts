@@ -666,6 +666,12 @@ export const api = {
   },
 
   async refreshEstimate(silent = false) {
+    // The estimate is only shown on the Plot step, but computing it re-parses the
+    // whole drawing (tens of thousands of dots) with svgelements — ~30s, minutes
+    // with occlusion clipping. Layer mutations call this after every change, so
+    // skip it off the Plot step; entering Plot refreshes it. This is what makes
+    // show/hide and occlusion toggles feel instant.
+    if (studio.step !== "plot") return null;
     const r = await fetch("/api/plot/estimate");
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {

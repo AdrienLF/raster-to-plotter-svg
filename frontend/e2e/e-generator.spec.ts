@@ -103,6 +103,23 @@ test("E6: spokes_and_circles generate timing", async ({ page, request, baseURL, 
   console.log(`[perf] E6: spokes_and_circles ${duration_ms}ms`);
 });
 
+// E7 [U]: Generate panel — params are organized into named groups for scannability.
+test("E7: generator params are organized into named groups", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E E7");
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "＋ Generator" }).click();
+  await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
+
+  // Params render inside .group containers with .group-title headings.
+  const groupCount = await page.locator(".group-title").count();
+  expect(groupCount, "params should be organized into groups").toBeGreaterThan(0);
+
+  console.log(`[ux] E7: ${groupCount} param groups in GeneratePanel`);
+  // The framework alone has ~10+ groups (Decimate, Transform, 3D Rotation, Distort 1/2, …).
+  expect(groupCount, "should have multiple groups for scannability").toBeGreaterThanOrEqual(3);
+});
+
 // E5: the target selector generates into a new layer or updates an existing one in place.
 test("E5: target selector — new layer vs existing layer", async ({ page, request, baseURL }) => {
   await freshProject(request, baseURL!, "E2E E5");
