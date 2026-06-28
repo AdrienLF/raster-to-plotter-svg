@@ -589,16 +589,40 @@
     return { x: (r.x - layer.x) / s, y: (r.y - layer.y) / s, width: r.width / s, height: r.height / s };
   }
 
-  // Occluder rects (in `layer`'s local mm) from visible layers stacked above it.
-  function occludersForLayer(layer: CompositionLayerT): Rect[] {
+  // Express `upper`'s occlusion mask in `layer`'s local mm (mirrors
+  // engine.composition._mask_to_layer).
+  function maskToLayer(layer: CompositionLayerT, upper: CompositionLayerT, m: MaskShape): MaskShape | null {
+    if (m.type === "rect") {
+      const r = rectToLayer(layer, rectToPage(upper, m));
+      return { type: "rect", ...r };
+    }
+    if (m.type === "path") {
+      const su = upper.scale || 1;
+      const sl = layer.scale || 1;
+      let i = 0;
+      const d = m.d.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (n) => {
+        const v = +n;
+        const page = i % 2 === 0 ? upper.x + su * v : upper.y + su * v;
+        const origin = i % 2 === 0 ? layer.x : layer.y;
+        i++;
+        return String(f3((page - origin) / sl));
+      });
+      return { type: "path", d };
+    }
+    return null;
+  }
+
+  // Occluder mask shapes (in `layer`'s local mm) from layers stacked above it.
+  function occludersForLayer(layer: CompositionLayerT): MaskShape[] {
     const visible = studio.composition.layers.filter((l) => l.visible);
     const index = visible.indexOf(layer);
     if (index < 0) return [];
-    const out: Rect[] = [];
+    const out: MaskShape[] = [];
     for (const upper of visible.slice(index + 1)) {
       const m = upper.occlusion_mask;
-      if (!upper.occlude_below || !m || m.type !== "rect") continue;
-      out.push(rectToLayer(layer, rectToPage(upper, m)));
+      if (!upper.occlude_below || !m) continue;
+      const mapped = maskToLayer(layer, upper, m);
+      if (mapped) out.push(mapped);
     }
     return out;
   }
@@ -694,6 +718,7 @@
           {@const eb = effectiveBounds(layer)}
           {@const cropX = layer.crop?.x ?? 0}
           {@const cropY = layer.crop?.y ?? 0}
+          {@const occluders = occludersForLayer(layer)}
           <div
             class="art"
             class:selected={layer.id === studio.composition.selected_layer_id}
@@ -720,16 +745,22 @@
               {#if layerShowsPaths(layer)}
                 {@html layer.svg}
               {/if}
-              {#each occludersForLayer(layer) as r, i (i)}
-                <div
+              {#if occluders.length}
+                <svg
                   class="knockout"
-                  style:left={`${r.x * (layer.scale || 1) * PX_PER_MM}px`}
-                  style:top={`${r.y * (layer.scale || 1) * PX_PER_MM}px`}
-                  style:width={`${r.width * (layer.scale || 1) * PX_PER_MM}px`}
-                  style:height={`${r.height * (layer.scale || 1) * PX_PER_MM}px`}
-                  style:background={page.canvas}
-                ></div>
-              {/each}
+                  viewBox={`0 0 ${layer.width} ${layer.height}`}
+                  style:width={`${layer.width * (layer.scale || 1) * PX_PER_MM}px`}
+                  style:height={`${layer.height * (layer.scale || 1) * PX_PER_MM}px`}
+                >
+                  {#each occluders as m, i (i)}
+                    {#if m.type === "rect"}
+                      <rect x={m.x} y={m.y} width={m.width} height={m.height} fill={page.canvas} />
+                    {:else if m.type === "path"}
+                      <path d={m.d} fill={page.canvas} />
+                    {/if}
+                  {/each}
+                </svg>
+              {/if}
             </div>
           </div>
         {/each}

@@ -257,18 +257,46 @@ def _mark_layer_style_stale(layer):
         style['status'] = 'stale'
     layer.pathfinding_style = style
 
+def _mask_outline_path(mask, layer_w, layer_h):
+    """Largest contour of a region mask as a `path` mask in layer-local mm, so
+    occlusion follows the region's real outline instead of its bounding box."""
+    import cv2
+    import numpy as np
+
+    arr = np.asarray(mask)
+    mh, mw = arr.shape[:2]
+    if not mw or not mh:
+        return None
+    contours, _ = cv2.findContours((arr > 127).astype(np.uint8),
+                                   cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    c = max(contours, key=cv2.contourArea)
+    c = cv2.approxPolyDP(c, 0.0015 * cv2.arcLength(c, True), True)
+    if len(c) < 3:
+        return None
+    sx, sy = layer_w / mw, layer_h / mh
+    pts = [(round(float(p[0][0]) * sx, 3), round(float(p[0][1]) * sy, 3)) for p in c]
+    d = 'M' + ' L'.join(f'{x},{y}' for x, y in pts) + ' Z'
+    return {'type': 'path', 'd': d}
+
+
 def _region_occlusion_mask(region, layer):
     image = _project.open_image()
     if image is None:
         return None
-    bbox = dict(getattr(region, 'bbox_px', None) or {})
-    if not bbox:
-        mask = _project.open_region_mask(region.id)
-        bbox = mask_bbox(mask) if mask else None
-    if not bbox:
-        return None
     image_w, image_h = image.size
     if not image_w or not image_h or not layer.width or not layer.height:
+        return None
+    mask = _project.open_region_mask(region.id)
+    if mask is not None:
+        outline = _mask_outline_path(mask, layer.width, layer.height)
+        if outline:
+            return outline
+    bbox = dict(getattr(region, 'bbox_px', None) or {})
+    if not bbox and mask is not None:
+        bbox = mask_bbox(mask) or {}
+    if not bbox:
         return None
     return {
         'type': 'rect',

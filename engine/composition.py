@@ -321,16 +321,37 @@ def _rect_to_layer(layer: CompositionLayer, rect: dict) -> dict:
     }
 
 
+def _mask_to_layer(layer: CompositionLayer, upper: CompositionLayer, mask: dict) -> dict | None:
+    """Express ``upper``'s occlusion mask in ``layer``'s local mm coordinates."""
+    kind = mask.get("type")
+    if kind == "rect":
+        return _rect_to_layer(layer, _rect_to_page(upper, mask))
+    if kind == "path":
+        su = float(upper.scale or 1)
+        sl = float(layer.scale or 1)
+        i = 0
+
+        def remap(m: "re.Match") -> str:
+            nonlocal i
+            v = float(m.group())
+            page = (upper.x + su * v) if i % 2 == 0 else (upper.y + su * v)
+            origin = layer.x if i % 2 == 0 else layer.y
+            i += 1
+            return _fmt((page - origin) / sl)
+
+        return {"type": "path", "d": re.sub(r"-?\d*\.?\d+(?:e[-+]?\d+)?", remap, str(mask.get("d", "")))}
+    return None
+
+
 def _upper_occlusion_masks(visible: list[CompositionLayer], index: int) -> list[dict]:
     masks: list[dict] = []
     layer = visible[index]
     for upper in visible[index + 1:]:
         if not upper.occlude_below or not upper.occlusion_mask:
             continue
-        mask = upper.occlusion_mask
-        if mask.get("type") != "rect":
-            continue
-        masks.append(_rect_to_layer(layer, _rect_to_page(upper, mask)))
+        mapped = _mask_to_layer(layer, upper, upper.occlusion_mask)
+        if mapped:
+            masks.append(mapped)
     return masks
 
 

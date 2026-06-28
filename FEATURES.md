@@ -25,7 +25,7 @@ A running list of what this software does. One line each. Updated on every commi
 - **Layer raster preview** — Served raster matches what the pathfinder analysed (aspect-correct, aligns with paths).
 - **Transform** — Move and scale layers in the viewport with handles.
 - **Crop & mask** — Rectangle crop and rect/pen masks per layer; crop-to-content.
-- **Occlusion** — Upper layers knock out the canvas beneath their footprint / region bbox.
+- **Occlusion** — Upper layers knock out lower layers along their actual mask/region outline (traced polygon), not just a bounding box.
 
 ## Drawing area & pens
 - **Drawing Area** — Page size, units, orientation, padding, scaling mode, pen-width rescaling.

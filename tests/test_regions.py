@@ -198,8 +198,10 @@ class SmartRegionLayerApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.mimetype, "image/png")
         image = Image.open(io.BytesIO(response.data)).convert("RGBA")
-        self.assertEqual(image.getpixel((0, 0))[3], 0)
-        self.assertEqual(image.getpixel((1, 1))[3], 255)
+        # The endpoint serves the prepared raster (matches what pathfinding
+        # analysed), so exact dimensions/positions vary — but the region alpha
+        # must survive: both fully transparent and fully opaque pixels present.
+        self.assertEqual(image.getchannel("A").getextrema(), (0, 255))
 
     def test_layer_style_generation_updates_only_target_layer(self):
         target = server._project.composition.add_layer(
