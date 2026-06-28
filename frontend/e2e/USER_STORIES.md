@@ -7,8 +7,8 @@ A library of user stories that drive the Playwright e2e tests. They serve three 
 3. **UI/UX** — give a concrete inventory of real flows to rethink the interface against.
 
 Each story is tagged with its primary goal: **[R]** regression, **[P]** performance, **[U]** UX.
-Story IDs map to spec files (one spec file per epic, e.g. `c-pathfinding.spec.ts`). Current
-coverage and the intentionally deferred backlog are recorded at the bottom.
+Story IDs appear in collected Playwright test names; some epics span multiple spec files.
+Current coverage and the intentionally deferred backlog are recorded at the bottom.
 
 Testing decisions:
 - **Plotter:** mock serial + estimate-only (`PLOTTER_FAKE_SERIAL=1`). No real motion.
@@ -146,10 +146,11 @@ Testing decisions:
 
 ## Coverage status
 
-The Playwright suite contains 84 tests covering 74 of the 86 story IDs above. Data-driven C7/C8 cases account for multiple tests under a single story ID.
+The Playwright suite contains 84 tests covering 73 of the 86 story IDs above. Data-driven C7/C8 cases account for multiple tests under a single story ID.
 
 ### Deferred stories
 
+- **A5:** Persistence across a backend restart, including composition, pens, and versions.
 - **D1-D6:** SAM2 region creation, confinement, inversion, deletion, latency, and editing UX.
 - **F6:** Composition masks.
 - **F8:** Alignment toolbar behavior.

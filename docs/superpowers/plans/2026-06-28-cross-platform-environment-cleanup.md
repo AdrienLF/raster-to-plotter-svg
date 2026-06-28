@@ -1034,7 +1034,7 @@ npm run e2e
 npm run e2e
 ```
 
-Expected each time: all 82 tests pass with 0 failed, 0 flaky, and 0 skipped. The backend command must report the isolated uv environment and must not alter `.venv`.
+Expected each time: all 84 tests pass with 0 failed, 0 flaky, and 0 skipped. The backend command must report the isolated uv environment and must not alter `.venv`.
 
 - [ ] **Step 3: Verify repository and application environment stability**
 

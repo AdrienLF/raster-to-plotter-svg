@@ -6,7 +6,7 @@
 
 ## Goal
 
-Finish `e2e-playwright-harness` as a trustworthy branch: all 82 current Playwright tests pass, genuine product defects exposed by those tests are fixed, the passing E7 test is committed, and the 12 catalogued but uncovered stories are recorded as future work rather than silently implied to be complete.
+Finish `e2e-playwright-harness` as a trustworthy branch: all 84 current Playwright tests pass, genuine product defects exposed by those tests are fixed, the passing E7 test is committed, and the 13 catalogued but uncovered stories are recorded as future work rather than silently implied to be complete.
 
 ## Definition of done
 
@@ -15,12 +15,12 @@ The branch is done when all of the following are true:
 - `uv run --with pytest python -m pytest` passes the complete backend suite.
 - `npm run check` reports no errors.
 - `npm run build` succeeds.
-- `npm run e2e` reports 82 passed, 0 failed, 0 flaky, and 0 skipped.
+- `npm run e2e` reports 84 passed, 0 failed, 0 flaky, and 0 skipped.
 - The working tree contains no accidental build or report changes.
 - `frontend/e2e/README.md` and `frontend/e2e/USER_STORIES.md` accurately describe implemented coverage and deferred stories.
 - A product/engineering roadmap ranks the best next improvements by user impact, effort, and risk.
 
-The branch will not implement the 12 currently uncovered stories: D1-D6, F6, F8-F10, H6, and K10.
+The branch will not implement the 13 currently uncovered stories: A5, D1-D6, F6, F8-F10, H6, and K10.
 
 ## Evidence and root causes
 
@@ -129,6 +129,7 @@ Recommendations will be ranked in three horizons: quick wins, medium investments
 
 ## Non-goals
 
+- Implementing A5 backend-restart persistence coverage.
 - Implementing SAM2 region stories D1-D6.
 - Adding mask, alignment, snapping, or UX-benchmark stories F6 and F8-F10.
 - Redesigning the visual interface.

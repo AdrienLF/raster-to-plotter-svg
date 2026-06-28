@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the current 82-test Playwright suite deterministic and green, fix the project/event lifecycle defects it exposes, document the 12 deferred stories, and publish a ranked product roadmap.
+**Goal:** Make the current 84-test Playwright suite deterministic and green, fix the project/event lifecycle defects it exposes, document the 13 deferred stories, and publish a ranked product roadmap.
 
 **Architecture:** Keep the existing single-active-project Flask architecture, but forbid project transitions while a worker is active and clear cached/queued events during idle transitions. Boot the Svelte application before connecting SSE, reset transient state on project changes, and make E2E synchronization wait on observable API/DOM conditions rather than elapsed time.
 
@@ -27,7 +27,7 @@
 - `frontend/e2e/m-journey.spec.ts` — namespaced SVG matching and generator completion synchronization.
 - `frontend/e2e/plot-estimate.spec.ts` — plot estimate/job synchronization if the shared helper requires it.
 - `frontend/e2e/README.md` — current suite layout and execution behavior.
-- `frontend/e2e/USER_STORIES.md` — 74 implemented IDs and 12 deferred IDs.
+- `frontend/e2e/USER_STORIES.md` — 73 implemented IDs and 13 deferred IDs.
 - `docs/product-roadmap.md` — ranked quick wins, medium investments, and ambitious bets.
 
 ### Task 1: Guard project transitions and clear transient events
@@ -185,7 +185,7 @@ uv run --with pytest python -m pytest tests/test_projects.py tests/test_event_st
 uv run --with pytest python -m pytest -q
 ```
 
-Expected: 9 focused project/event tests pass, then all 83 backend tests pass (80 existing plus 3 new).
+Expected: 9 focused project/event tests pass, then all 94 backend tests pass.
 
 - [ ] **Step 5: Commit the backend lifecycle fix**
 
@@ -709,9 +709,9 @@ git commit -m "test: align generator journeys with manual-first flow"
 Replace the stale README layout coverage claim with:
 
 ```markdown
-The suite currently contains 17 spec files and 84 serial Chromium tests covering 74 of the 86 catalogued story IDs. Specs combine direct API setup with real UI interactions so expensive setup stays fast while user-visible behavior remains end-to-end.
+The suite currently contains 17 spec files and 84 serial Chromium tests covering 73 of the 86 catalogued story IDs. Specs combine direct API setup with real UI interactions so expensive setup stays fast while user-visible behavior remains end-to-end.
 
-Twelve story IDs are intentionally deferred: D1-D6, F6, F8-F10, H6, and K10. See `USER_STORIES.md` for their requirements.
+Thirteen story IDs are intentionally deferred: A5, D1-D6, F6, F8-F10, H6, and K10. See `USER_STORIES.md` for their requirements.
 ```
 
 - [ ] **Step 2: Replace the stale coverage section in `USER_STORIES.md`**
@@ -721,10 +721,11 @@ Use this coverage section:
 ```markdown
 ## Coverage status
 
-The Playwright suite contains 84 tests covering 74 of the 86 story IDs above. Data-driven C7/C8 cases account for multiple tests under a single story ID.
+The Playwright suite contains 84 tests covering 73 of the 86 story IDs above. Data-driven C7/C8 cases account for multiple tests under a single story ID.
 
 ### Deferred stories
 
+- **A5:** Persistence across a backend restart, including composition, pens, and versions.
 - **D1-D6:** SAM2 region creation, confinement, inversion, deletion, latency, and editing UX.
 - **F6:** Composition masks.
 - **F8:** Alignment toolbar behavior.
@@ -741,12 +742,17 @@ These are backlog items, not implied coverage. A story moves out of this list on
 Run:
 
 ```powershell
-$stories = (Select-String -Path 'frontend\e2e\USER_STORIES.md' -Pattern '(?m)^\- \*\*([A-M][0-9]+)' -AllMatches -CaseSensitive).Matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-$tests = (Select-String -Path 'frontend\e2e\*.spec.ts' -Pattern '\b([A-M][0-9]+)\b' -AllMatches -CaseSensitive).Matches | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notin @('G00', 'G01') } | Sort-Object -Unique
-"stories=$($stories.Count) covered=$($tests.Count) deferred=$($stories.Count - $tests.Count)"
+$stories = (Select-String -Path 'frontend\e2e\USER_STORIES.md' -Pattern '(?m)^\- \*\*([A-M][0-9]+) \[' -AllMatches -CaseSensitive).Matches | ForEach-Object { $_.Groups[1].Value }
+Push-Location frontend
+try { $listed = npx playwright test --list } finally { Pop-Location }
+$covered = $listed | Where-Object { $_ -match '^\s+\[chromium\].* › ' } | ForEach-Object { [regex]::Matches($_, '\b([A-M][0-9]+)\b') | ForEach-Object { $_.Groups[1].Value } } | Where-Object { $_ -in $stories } | Sort-Object -Unique
+$deferred = $stories | Where-Object { $_ -notin $covered }
+($listed | Select-String '^Total:').Line
+"stories=$($stories.Count) covered=$($covered.Count) deferred=$($deferred.Count)"
+"deferred=$($deferred -join ', ')"
 ```
 
-Expected: `stories=86 covered=74 deferred=12`.
+Expected: `Total: 84 tests in 17 files`, `stories=86 covered=73 deferred=13`, and deferred IDs `A5, D1-D6, F6, F8-F10, H6, K10`.
 
 - [ ] **Step 4: Commit coverage documentation**
 
@@ -772,7 +778,7 @@ npm run build
 Set-Location ..
 ```
 
-Expected: 83 backend tests pass; Svelte reports 0 errors; Vite exits 0.
+Expected: 94 backend tests pass; Svelte reports 0 errors; Vite exits 0.
 
 - [ ] **Step 2: Run the complete Playwright suite**
 
