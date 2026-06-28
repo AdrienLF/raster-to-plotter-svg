@@ -143,3 +143,14 @@ export function pushLog(msg: string) {
   const t = new Date().toLocaleTimeString();
   studio.log = [...studio.log.slice(-200), `${t}  ${msg}`];
 }
+
+// Surface a failure with a human/LLM-useful message instead of a bare "Error".
+// Sets the status line to "<context>: <detail>" and logs it. `context` should
+// describe the action (e.g. "Layer pathfinding error").
+export function reportError(context: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? "");
+  const text = detail && detail !== context ? `${context}: ${detail}` : context || "Error";
+  studio.status = text;
+  pushLog("⚠ " + text);
+  return text;
+}

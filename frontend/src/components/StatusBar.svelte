@@ -3,6 +3,7 @@
 
   const gpu = $derived(studio.backend.startsWith("torch"));
   const lastLog = $derived(studio.log[studio.log.length - 1] ?? "");
+  const isError = $derived(/error|failed|unavailable/i.test(studio.status));
 
   function fmtSeconds(value: number | null | undefined) {
     if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -18,7 +19,7 @@
 
 <div class="status">
   <span class="badge" class:gpu>{gpu ? "GPU" : "CPU"} · {studio.backend}</span>
-  <span class="state">{studio.status}</span>
+  <span class="state" class:err={isError} title={studio.status}>{studio.status}</span>
   {#if studio.processing || studio.plotting}
     <div class="bar"><div class="fill" style:width={`${studio.progress * 100}%`}></div></div>
   {/if}
@@ -57,6 +58,14 @@
   }
   .state {
     color: var(--text);
+    max-width: 420px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .state.err {
+    color: var(--danger, #ff6b6b);
+    font-weight: 600;
   }
   .bar {
     width: 140px;

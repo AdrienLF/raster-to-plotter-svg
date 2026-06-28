@@ -1,4 +1,4 @@
-import { studio, pushLog } from "./state.svelte";
+import { studio, pushLog, reportError } from "./state.svelte";
 import type { CompositionLayerT, MaskShape, Param, PathfindingStyleT, SegmentationPromptT } from "./types";
 
 async function jget(url: string) {
@@ -95,8 +95,7 @@ function isCurrentProject(generation: number) {
 
 function reportBootError(error: unknown) {
   studio.processing = false;
-  studio.status = "Error";
-  pushLog("Boot error: " + (error instanceof Error ? error.message : String(error)));
+  reportError("Boot error", error);
   console.error(error);
 }
 
@@ -341,8 +340,7 @@ export const api = {
       params: studio.genParams,
     }).catch((e) => {
       studio.processing = false;
-      studio.status = "Error";
-      pushLog("Generate error: " + e.message);
+      reportError("Generate error", e);
       flushGenerate();
     });
   },
@@ -488,8 +486,7 @@ export const api = {
       studio.status = "Ready";
       pushLog(`Loaded image ${j.name} (${j.width}×${j.height})`);
     } catch (e) {
-      studio.status = "Error";
-      pushLog("Image load error: " + (e instanceof Error ? e.message : String(e)));
+      reportError("Image load error", e);
       throw e;
     }
   },
@@ -501,7 +498,7 @@ export const api = {
     const r = await fetch("/api/upload", { method: "POST", body: fd });
     const j = await r.json();
     if (!r.ok) {
-      studio.status = "Error";
+      reportError("SVG load error", j.error || "SVG upload failed");
       throw new Error(j.error || "SVG upload failed");
     }
     this.applyComposition(j);
@@ -550,8 +547,7 @@ export const api = {
       region_id: studio.selectedRegionId || undefined,
     }).catch((e) => {
       studio.processing = false;
-      studio.status = "Error";
-      pushLog("Process error: " + e.message);
+      reportError("Process error", e);
     });
   },
 
@@ -587,8 +583,7 @@ export const api = {
       pushLog(`Generated layer ${layer.name}`);
       return j;
     } catch (e) {
-      studio.status = "Error";
-      pushLog("Layer style error: " + (e instanceof Error ? e.message : String(e)));
+      reportError("Layer pathfinding error", e);
       return null;
     } finally {
       studio.processing = false;
@@ -767,8 +762,7 @@ export function connectStream() {
         studio.progress = m.done / m.total;
       }
     } else if (m.t === "error") {
-      pushLog("⚠ " + m.msg);
-      studio.status = "Error";
+      reportError("Plotter error", m.msg);
     }
   };
   es.onerror = () => {
@@ -804,8 +798,7 @@ function handleProc(m: any) {
     void api.refreshEstimate(true);
   } else if (m.state === "error") {
     studio.processing = false;
-    studio.status = "Error";
-    pushLog("Process error: " + m.msg);
+    reportError("Process error", m.msg);
   }
 }
 

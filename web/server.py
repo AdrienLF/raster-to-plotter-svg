@@ -1930,10 +1930,18 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
     pfm_id = data.get('pfm_id') or style.get('pfm_id') or _project.pfm_id
     if pfm_id not in REGISTRY:
         return None, ('Unknown PFM', 400)
-    region_id = data.get('region_id') or layer.region_id or (layer.source or {}).get('region_id')
+    # When the request carries a region_id key (the UI always does), honour it
+    # verbatim — including an explicit null meaning "whole image". Only fall back
+    # to the layer's stored region when the key is absent, so switching a layer
+    # back to the whole image actually takes effect instead of re-using the old
+    # region from layer.source.
+    if 'region_id' in data:
+        region_id = data.get('region_id') or None
+    else:
+        region_id = layer.region_id or (layer.source or {}).get('region_id')
     region = _project.get_region(region_id) if region_id else None
     if region_id and region is None:
-        return None, ('Unknown region', 404)
+        return None, (f'Unknown region {region_id!r}', 404)
     _area_from(data.get('area'))
     _drawing_set_from(data.get('drawing_set'))
     pfm = get_pfm(pfm_id)
@@ -2010,13 +2018,15 @@ def api_composition_layer_pathfinding_generate(layer_id):
     try:
         drawing, error = _generate_pathfinding_for_layer(layer, data, wide=w)
     except Exception as exc:
+        # Never surface a blank error — some exceptions stringify to "".
+        message = str(exc) or f'{type(exc).__name__} during path finding'
         style = _normalize_pathfinding_style(layer.pathfinding_style)
         style['status'] = 'error'
-        style['error'] = str(exc)
+        style['error'] = message
         layer.pathfinding_style = style
         _project.save_composition_layers()
-        w.emit('error', level=logging.ERROR, error=str(exc))
-        return jsonify(error=str(exc), composition=_composition_payload()), 500
+        w.emit('error', level=logging.ERROR, error=message)
+        return jsonify(error=message, composition=_composition_payload()), 500
     if error:
         message, status = error
         w.emit('error', level=logging.WARNING, error=message)

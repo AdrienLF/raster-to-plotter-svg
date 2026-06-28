@@ -279,6 +279,38 @@ class SmartRegionLayerApiTest(unittest.TestCase):
             {"type": "rect", "x": 0.0, "y": 0.0, "width": 10.0, "height": 10.0},
         )
 
+    def test_explicit_null_region_overrides_stored_source_region(self):
+        # Regression: switching a layer that was generated with a region back to
+        # "Whole image" must regenerate without the region, not silently re-use
+        # the old region from layer.source.
+        target = server._project.composition.add_layer(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10"></svg>',
+            "Face",
+            "pathfinding",
+            {},
+        )
+        target.region_id = self.region.id
+        target.source = {"region_id": self.region.id}
+        fake_pfm = mock.Mock()
+        fake_pfm.id = "fake_pfm"
+        fake_pfm.name = "Fake PFM"
+        fake_pfm.params = []
+        fake_pfm.run.return_value = object()
+        server.REGISTRY[fake_pfm.id] = fake_pfm
+        try:
+            with mock.patch.object(server.svg_io, "to_svg", return_value='<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10"><path d="M4 4 L5 5"/></svg>'):
+                response = self.client.post(
+                    f"/api/composition/layers/{target.id}/pathfinding/generate",
+                    json={"pfm_id": fake_pfm.id, "params": {}, "region_id": None},
+                )
+        finally:
+            server.REGISTRY.pop(fake_pfm.id, None)
+
+        self.assertEqual(response.status_code, 200)
+        layer = {l["id"]: l for l in response.get_json()["composition"]["layers"]}[target.id]
+        self.assertIsNone(layer["region_id"])
+        self.assertIsNone(layer["source"]["region_id"])
+
     def test_add_layer_endpoint_creates_empty_pathfinding_layer(self):
         before = len(server._project.composition.layers)
         response = self.client.post("/api/composition/add-layer", json={})

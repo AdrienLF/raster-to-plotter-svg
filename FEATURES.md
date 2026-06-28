@@ -21,7 +21,7 @@ A running list of what this software does. One line each. Updated on every commi
 
 ## Composition (layers)
 - **Layer stack** — Multiple stacked layers, each bound to a region or the whole image; reorder, duplicate, delete, toggle visibility.
-- **Per-layer path finding** — Run a PFM per layer with independent params (`/pathfinding/generate`).
+- **Per-layer path finding** — Run a PFM per layer with independent params (`/pathfinding/generate`); switching a layer back to "Whole image" regenerates without the old region.
 - **Display modes** — Show a layer as raster, pathfinding paths, or both.
 - **Layer raster preview** — Served raster matches what the pathfinder analysed (aspect-correct, aligns with paths).
 - **Transform** — Move and scale layers in the viewport with handles.
@@ -38,6 +38,10 @@ A running list of what this software does. One line each. Updated on every commi
 
 ## Versions
 - **Snapshot version control** — Save, load, rename, reorder, delete drawing snapshots with thumbnails.
+
+## Feedback & status
+- **Status bar** — Shows backend (GPU/CPU), current operation, progress bar, and plot elapsed/remaining/shape counts.
+- **Useful errors** — Failures show the actual message (e.g. "Layer pathfinding error: …") in red in the status bar, never a bare "Error"; full text on hover.
 
 ## Output & plotting
 - **Multi-layer SVG export** — mm-unit SVG with a viewBox; one Inkscape layer group per pen.
