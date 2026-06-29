@@ -11,6 +11,28 @@ export interface Param {
   help: string;
 }
 
+export interface ShapeLayerT {
+  id: string;
+  enabled: boolean;
+  type: "circle" | "polygon" | "star" | "diamond" | "cross" | "spiral" | "wave";
+  scale: number;
+  rotation: number;
+  offset_x: number;
+  offset_y: number;
+  repeat_count: number;
+  repeat_scale: number;
+  repeat_rotation: number;
+  segments: number;
+  sides: number;
+  points: number;
+  inner_ratio: number;
+  aspect: number;
+  arm_width: number;
+  turns: number;
+  cycles: number;
+  amplitude: number;
+}
+
 export interface PfmInfo {
   id: string;
   name: string;

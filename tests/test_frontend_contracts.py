@@ -186,13 +186,7 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("studio.plotProgress = null", snapshot_branch)
         self.assertIn("studio.previewSvg = null", snapshot_branch)
         self.assertIn("const restoredLayer = studio.selectedLayer", snapshot_branch)
-        self.assertIn("restoredLayer.source?.generator_id", snapshot_branch)
-        self.assertIn("const previousAutoRedraw = studio.autoRedraw", snapshot_branch)
-        self.assertIn("studio.autoRedraw = false", snapshot_branch)
-        self.assertIn("await this.selectGenerator(generatorId)", snapshot_branch)
-        self.assertIn("studio.genSchema.map((param) => [param.name, param.default])", snapshot_branch)
-        self.assertIn("...(restoredLayer.source.params ?? {})", snapshot_branch)
-        self.assertIn("studio.autoRedraw = previousAutoRedraw", snapshot_branch)
+        self.assertIn("await this.restoreGeneratorLayer(restoredLayer)", snapshot_branch)
         self.assertNotIn("this.process()", snapshot_branch)
         self.assertIn("await this.process()", legacy_branch)
         self.assertIn('pushLog("Loaded version")', body)
@@ -319,6 +313,24 @@ class FrontendContractsTest(unittest.TestCase):
         # huge stippling SVG with clip-path was too slow).
         self.assertIn("occludersForLayer", viewport)
         self.assertIn("knockout", viewport)
+
+    def test_shape_field_frontend_state_contract(self):
+        types = (ROOT / "frontend/src/lib/types.ts").read_text(encoding="utf-8")
+        state = (ROOT / "frontend/src/lib/state.svelte.ts").read_text(encoding="utf-8")
+        api = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
+
+        self.assertIn("export interface ShapeLayerT", types)
+        self.assertIn("generatorEditor = $state<string | null>(null)", state)
+        self.assertIn("generatorDefaults = $state<Record<string, any>>({})", state)
+        self.assertIn("generatorShapeTypes = $state<string[]>([])", state)
+        self.assertIn("studio.generatorEditor = sch.editor ?? null", api)
+        self.assertIn(
+            "studio.generatorDefaults = structuredClone(sch.defaults ?? {})", api
+        )
+        self.assertIn("studio.generatorShapeTypes = sch.shape_types ?? []", api)
+        self.assertIn("keep.shape_layers = structuredClone", api)
+        self.assertIn("async restoreGeneratorLayer", api)
+        self.assertIn("await this.restoreGeneratorLayer(studio.selectedLayer)", api)
 
 
 if __name__ == "__main__":

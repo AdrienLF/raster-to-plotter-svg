@@ -150,6 +150,8 @@ export const api = {
       if (!isCurrentProject(generation)) return false;
       await this.selectGenerator(studio.generatorId, generation);
       if (!isCurrentProject(generation)) return false;
+      await this.restoreGeneratorLayer(studio.selectedLayer);
+      if (!isCurrentProject(generation)) return false;
       await this.refreshVersions(generation);
       if (!isCurrentProject(generation)) return false;
       return true;
@@ -286,6 +288,7 @@ export const api = {
   async selectLayer(id: string) {
     if (!id) return;
     await this.patchLayer(id, { selected: true });
+    await this.restoreGeneratorLayer(studio.selectedLayer);
   },
 
   // Clear the target so the next generate / upload creates a new layer.
@@ -329,10 +332,36 @@ export const api = {
     const sch = await jget(`/api/generate/${id}/schema`);
     if (!isCurrentProject(generation)) return false;
     studio.genSchema = sch.params;
+    studio.generatorEditor = sch.editor ?? null;
+    studio.generatorDefaults = structuredClone(sch.defaults ?? {});
+    studio.generatorShapeTypes = sch.shape_types ?? [];
     const keep: Record<string, any> = {};
     for (const p of sch.params) keep[p.name] = studio.genParams[p.name] ?? p.default;
+    if (studio.generatorEditor === "shape_field") {
+      keep.shape_layers = structuredClone(
+        Array.isArray(studio.genParams.shape_layers)
+          ? studio.genParams.shape_layers
+          : studio.generatorDefaults.shape_layers ?? [],
+      );
+    }
     studio.genParams = keep;
     return true;
+  },
+
+  async restoreGeneratorLayer(layer: CompositionLayerT | null | undefined) {
+    if (layer?.kind !== "generate" || !layer.source?.generator_id) return false;
+    const previousAutoRedraw = studio.autoRedraw;
+    studio.autoRedraw = false;
+    try {
+      if (!await this.selectGenerator(layer.source.generator_id)) return false;
+      studio.genParams = {
+        ...studio.genParams,
+        ...structuredClone(layer.source.params ?? {}),
+      };
+      return true;
+    } finally {
+      studio.autoRedraw = previousAutoRedraw;
+    }
   },
 
   async generate() {
@@ -637,21 +666,7 @@ export const api = {
     if (j.composition) {
       this.applyComposition(j);
       const restoredLayer = studio.selectedLayer;
-      if (restoredLayer?.kind === "generate" && restoredLayer.source?.generator_id) {
-        const generatorId = restoredLayer.source.generator_id;
-        const previousAutoRedraw = studio.autoRedraw;
-        studio.autoRedraw = false;
-        try {
-          if (await this.selectGenerator(generatorId)) {
-            const defaults = Object.fromEntries(
-              studio.genSchema.map((param) => [param.name, param.default]),
-            );
-            studio.genParams = { ...defaults, ...(restoredLayer.source.params ?? {}) };
-          }
-        } finally {
-          studio.autoRedraw = previousAutoRedraw;
-        }
-      }
+      await this.restoreGeneratorLayer(restoredLayer);
       studio.previewSvg = null;
       studio.stats = null;
       studio.plotEstimate = null;

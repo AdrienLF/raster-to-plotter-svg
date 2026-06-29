@@ -40,6 +40,9 @@ class Studio {
   generatorId = $state("spokes_and_circles");
   genSchema = $state<Param[]>([]);
   genParams = $state<Record<string, any>>({});
+  generatorEditor = $state<string | null>(null);
+  generatorDefaults = $state<Record<string, any>>({});
+  generatorShapeTypes = $state<string[]>([]);
   autoRedraw = $state(true);
 
   // drawing area
