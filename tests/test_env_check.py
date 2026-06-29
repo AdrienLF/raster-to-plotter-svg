@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -51,6 +52,38 @@ class EnvironmentCheckTest(unittest.TestCase):
             env_check.python_errors((3, 12, 9)),
             ["Python 3.13 is required; found 3.12.9"],
         )
+
+    def test_prepare_checkpoint_downloads_only_when_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sam2.1_hiera_tiny.pt"
+            download = mock.Mock(side_effect=lambda url, dest: dest.write_bytes(b"x"))
+
+            result = env_check.prepare_checkpoint(
+                target,
+                "https://example.test/model.pt",
+                allow_download=True,
+                downloader=download,
+            )
+
+            self.assertEqual(result, target)
+            download.assert_called_once_with("https://example.test/model.pt", target)
+
+    def test_missing_checkpoint_without_download_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "checkpoint is missing"):
+                env_check.prepare_checkpoint(
+                    Path(tmp) / "missing.pt",
+                    "https://example.test/model.pt",
+                    allow_download=False,
+                    downloader=mock.Mock(),
+                )
+
+    def test_smoke_inference_requires_a_nonempty_mask(self):
+        predictor = mock.Mock()
+        predictor.predict.return_value = (mock.Mock(size=0), [], None)
+
+        with self.assertRaisesRegex(RuntimeError, "no masks"):
+            env_check.run_predictor_smoke(predictor, mock.Mock(), mock.Mock())
 
 
 if __name__ == "__main__":

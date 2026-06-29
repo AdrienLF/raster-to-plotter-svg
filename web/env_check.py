@@ -53,6 +53,63 @@ def accelerator_status(torch, expected: str) -> tuple[dict[str, str], list[str]]
     return details, [f"Unsupported expected backend: {expected}"]
 
 
+DEFAULT_MODEL = "sam2.1_hiera_tiny"
+DEFAULT_CONFIG = "configs/sam2.1/sam2.1_hiera_t.yaml"
+DEFAULT_CHECKPOINT_URL = (
+    "https://dl.fbaipublicfiles.com/segment_anything_2/092824/"
+    "sam2.1_hiera_tiny.pt"
+)
+
+
+def download_file(url: str, target: Path) -> None:
+    import urllib.request
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_suffix(target.suffix + ".part")
+    urllib.request.urlretrieve(url, partial)
+    partial.replace(target)
+
+
+def prepare_checkpoint(
+    target: Path,
+    url: str,
+    *,
+    allow_download: bool,
+    downloader=download_file,
+) -> Path:
+    if target.is_file():
+        return target
+    if not allow_download:
+        raise RuntimeError(f"SAM2 checkpoint is missing: {target}")
+    downloader(url, target)
+    if not target.is_file():
+        raise RuntimeError(f"SAM2 checkpoint download did not create: {target}")
+    return target
+
+
+def run_predictor_smoke(predictor, np, torch):
+    image = np.zeros((32, 32, 3), dtype=np.uint8)
+    point_coords = np.array([[16, 16]])
+    point_labels = np.array([1])
+    predictor.set_image(image)
+    # ponytail: real torch.inference_mode() is a context manager; a test Mock is not,
+    # so fall back to a no-op context when the protocol is absent.
+    import contextlib
+
+    cm = torch.inference_mode()
+    if not hasattr(type(cm), "__enter__"):
+        cm = contextlib.nullcontext()
+    with cm:
+        masks, _scores, _low = predictor.predict(
+            point_coords=point_coords,
+            point_labels=point_labels,
+            multimask_output=False,
+        )
+    if masks is None or getattr(masks, "size", 0) == 0:
+        raise RuntimeError("SAM2 smoke inference returned no masks")
+    return masks
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Validate the Plotter Studio environment")
     parser.add_argument("--backend", required=True, choices=("cuda", "mps"))
@@ -100,8 +157,40 @@ def main(argv=None) -> int:
         details.update(acc_details)
         errors += acc_errors
 
-    if args.download_checkpoint or args.smoke:
-        errors.append("Checkpoint download and smoke inference are not implemented")
+    if args.smoke and torch is not None and not errors:
+        try:
+            import numpy as np
+
+            checkpoint = Path(
+                args.checkpoint
+                or os.environ.get("SAM2_CHECKPOINT")
+                or Path.home() / ".plotter_studio" / "models" / f"{DEFAULT_MODEL}.pt"
+            )
+            checkpoint = prepare_checkpoint(
+                checkpoint,
+                DEFAULT_CHECKPOINT_URL,
+                allow_download=args.download_checkpoint,
+            )
+            from sam2.build_sam import build_sam2
+            from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+            model = build_sam2(DEFAULT_CONFIG, str(checkpoint), device=args.backend)
+            predictor = SAM2ImagePredictor(model)
+            run_predictor_smoke(predictor, np, torch)
+            details["sam2_smoke"] = "ok"
+        except Exception as exc:
+            errors.append(f"SAM2 smoke inference failed: {exc}")
+    elif args.download_checkpoint and not args.smoke:
+        try:
+            checkpoint = Path(
+                args.checkpoint
+                or os.environ.get("SAM2_CHECKPOINT")
+                or Path.home() / ".plotter_studio" / "models" / f"{DEFAULT_MODEL}.pt"
+            )
+            prepare_checkpoint(checkpoint, DEFAULT_CHECKPOINT_URL, allow_download=True)
+            details["sam2_checkpoint"] = "ready"
+        except Exception as exc:
+            errors.append(f"SAM2 checkpoint preparation failed: {exc}")
 
     if args.json:
         print(json.dumps({"details": details, "errors": errors}))
