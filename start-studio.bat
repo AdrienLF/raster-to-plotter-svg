@@ -1,28 +1,31 @@
 @echo off
 setlocal
+cd /d "%~dp0"
 set PORT=7438
 
-echo . Stopping any studio already on port %PORT%...
+set "CONDA_PREFIX="
+set "CONDA_DEFAULT_ENV="
+set "CONDA_PROMPT_MODIFIER="
+set "CONDA_PYTHON_EXE="
+set "CONDA_SHLVL="
+
+if not exist ".venv\Scripts\python.exe" (
+    echo Run setup-windows.bat first.
+    exit /b 1
+)
+
 for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":%PORT% " ^| findstr "LISTENING"') do (
-    taskkill /PID %%p /F >nul 2>&1
+    echo Port %PORT% is already in use by PID %%p. Stop it and retry.
+    exit /b 1
 )
 
-echo . Syncing Python deps with GPU support...
-call uv sync --extra gpu
-if errorlevel 1 ( echo uv sync failed & exit /b 1 )
-
-echo . Building the UI...
-if not exist frontend\node_modules (
-    pushd frontend && call npm install && popd
-    if errorlevel 1 ( echo npm install failed & exit /b 1 )
-)
-pushd frontend && call npm run build && popd
-if errorlevel 1 ( echo UI build failed & exit /b 1 )
+echo . Verifying environment...
+uv run --locked --no-sync python -m web.env_check --backend cuda || exit /b 1
 
 echo.
-echo . Starting Plotter Studio (GPU)...
+echo . Starting Plotter Studio (CUDA)...
 echo     Local:  http://localhost:%PORT%
 echo   (Press Ctrl+C to stop.)
 echo.
 
-uv run --extra gpu python -m web.server
+uv run --locked --no-sync python -m web.server

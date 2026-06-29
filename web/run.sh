@@ -1,6 +1,10 @@
 #!/bin/sh
-# Run from the repo root so the `engine` package and `web` package both import cleanly.
-# Launch with the GPU extra by default; accel.py falls back to numpy/scipy if
-# Torch or a Metal/CUDA device is unavailable.
+# Generic prepared-environment launcher. Run from the repo root so `engine` and
+# `web` import cleanly. It does not choose an accelerator profile or sync — run
+# the platform setup script first. Offline: never installs, builds, or kills.
 cd "$(dirname "$0")/.."
-exec uv run --extra gpu python -m web.server
+if [ ! -d ".venv" ]; then
+  echo "Run the platform setup script first (setup-windows.bat / ./setup-macos.command)." >&2
+  exit 1
+fi
+exec uv run --locked --no-sync python -m web.server

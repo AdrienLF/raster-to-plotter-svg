@@ -1,38 +1,33 @@
 #!/bin/sh
-# Plotter Studio — one-click launch (GPU / Metal-MPS).
+# Plotter Studio — one-click launch (Metal/MPS).
 # Double-click in Finder, or run: ./start-studio.command
 #
-# Stops any already-running studio, ensures the GPU dependency (torch) is
-# installed, rebuilds the UI, then serves everything from one Flask process on
-# port 7438 (reachable at localhost and over Tailscale).
+# Offline launcher: it never installs, syncs, builds, downloads, or kills
+# processes. Run ./setup-macos.command first to prepare the environment.
 
 cd "$(dirname "$0")" || exit 1
 PORT=7438
 
-echo "▸ Stopping any studio already on port $PORT…"
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER CONDA_PYTHON_EXE CONDA_SHLVL
+
+if [ ! -x ".venv/bin/python" ]; then
+  echo "Run ./setup-macos.command first." >&2
+  exit 1
+fi
+
 PIDS=$(lsof -nP -iTCP:$PORT -sTCP:LISTEN -t 2>/dev/null)
 if [ -n "$PIDS" ]; then
-  kill $PIDS 2>/dev/null
-  sleep 1
-  # force-kill anything that ignored the polite request
-  PIDS=$(lsof -nP -iTCP:$PORT -sTCP:LISTEN -t 2>/dev/null)
-  [ -n "$PIDS" ] && kill -9 $PIDS 2>/dev/null && sleep 1
+  echo "Port $PORT is already in use by PID $PIDS. Stop it and retry." >&2
+  exit 1
 fi
 
-echo "▸ Syncing Python deps with GPU support…"
-uv sync --extra gpu || { echo "uv sync failed"; exit 1; }
-
-echo "▸ Building the UI…"
-if [ ! -d frontend/node_modules ]; then
-  (cd frontend && npm install) || { echo "npm install failed"; exit 1; }
-fi
-(cd frontend && npm run build) || { echo "UI build failed"; exit 1; }
+echo "▸ Verifying environment…"
+uv run --locked --no-sync python -m web.env_check --backend mps || exit 1
 
 echo ""
-echo "▸ Starting Plotter Studio (GPU) …"
-echo "    Local:    http://localhost:$PORT"
-echo "    Tailnet:  http://<this-mac-tailscale-ip>:$PORT"
-echo "  (Press Ctrl+C in this window to stop.)"
+echo "▸ Starting Plotter Studio (MPS)…"
+echo "    Local:  http://localhost:$PORT"
+echo "  (Press Ctrl+C to stop.)"
 echo ""
 
-exec uv run --extra gpu python -c "import web.server as s; s.app.run(host='0.0.0.0', port=$PORT, threaded=True)"
+exec uv run --locked --no-sync python -m web.server
