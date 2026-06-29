@@ -177,6 +177,28 @@ test("E7: generator params are organized into named groups", async ({ page, requ
   expect(groupCount, "should have multiple groups for scannability").toBeGreaterThanOrEqual(3);
 });
 
+// E8: Shape Field uses its dedicated dynamic editor and persists the shape stack.
+test("E8: Shape Field dedicated editor builds and persists a dynamic pattern", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E E8 Shape Field");
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "＋ Generator" }).click();
+  await page.locator(".gen-select").selectOption("shape_field");
+  await expect(page.locator(".shape-field-editor")).toBeVisible();
+  await expect(page.locator(".shape-card")).toHaveCount(3);
+
+  await page.getByRole("button", { name: "Add shape" }).click();
+  await expect(page.locator(".shape-card")).toHaveCount(4);
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+
+  const composition = await waitForGeneratedLayer(request, baseURL!);
+  const layer = composition.layers[0];
+  expect(layer.svg).toMatch(DRAWING_SHAPE);
+  expect(layer.source.generator_id).toBe("shape_field");
+  expect(layer.source.params.shape_layers).toHaveLength(4);
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+});
+
 // E5: the target selector generates into a new layer or updates an existing one in place.
 test("E5: target selector — new layer vs existing layer", async ({ page, request, baseURL }) => {
   await freshProject(request, baseURL!, "E2E E5");

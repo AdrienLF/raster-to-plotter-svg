@@ -34,7 +34,7 @@ Budgets live in `perf/budgets.json` — over-budget logs a warning, it never fai
 
 ## Layout
 
-The suite currently contains 17 spec files and 84 serial Chromium tests covering 73 of the 86 catalogued story IDs. Specs combine direct API setup with real UI interactions so expensive setup stays fast while user-visible behavior remains end-to-end.
+The suite currently contains 17 spec files and 85 serial Chromium tests covering 74 of the 87 catalogued story IDs. Specs combine direct API setup with real UI interactions so expensive setup stays fast while user-visible behavior remains end-to-end.
 
 Thirteen story IDs are intentionally deferred: A5, D1-D6, F6, F8-F10, H6, and K10. See `USER_STORIES.md` for their requirements.
 

@@ -18,6 +18,7 @@ A running list of what this software does. One line each. Updated on every commi
 - **Schema-driven params** — Every PFM's controls auto-generated from a typed schema (`engine/params.py`).
 - **GPU acceleration** — Torch (MPS/CUDA) for nearest-site / weighted-centroid stages; numpy/scipy CPU fallback. Active backend shown in status bar.
 - **Generators** — Procedural pattern generators distinct from image-driven PFMs (`/api/generate`).
+- **Shape Field generator** — Build tiled patterns from a dynamic stack of circles, polygons, stars, diamonds, crosses, spirals, and waves across square, brick, hex, triangular, or jittered layouts; combine them as nested, alternating, connected, or overlapping motifs with modulation and seeded randomness.
 
 ## Composition (layers)
 - **Layer stack** — Multiple stacked layers, each bound to a region or the whole image; reorder, duplicate, delete, toggle visibility.

@@ -14,6 +14,7 @@ from engine.shape_field import (
 )
 from engine.params import defaults
 from engine.generate import get_generator, list_generators
+from engine.genframe import apply_framework
 import web.server as server
 
 
@@ -152,3 +153,14 @@ class ShapeFieldRegistryTest(unittest.TestCase):
         self.assertEqual(payload["editor"], "shape_field")
         self.assertEqual(payload["shape_types"], list(SHAPE_TYPES))
         self.assertEqual(len(payload["defaults"]["shape_layers"]), 3)
+
+    def test_registered_defaults_run_through_shared_framework(self):
+        generator = get_generator("shape_field")
+        params = generator["normalize"]({})
+
+        lines, width, height = generator["fn"](params, seed=0)
+        transformed, extras = apply_framework(lines, width, height, params, seed=0)
+
+        self.assertTrue(lines)
+        self.assertTrue(transformed or extras)
+        self.assertEqual((width, height), (29.7, 42.0))

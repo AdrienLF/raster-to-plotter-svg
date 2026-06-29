@@ -68,6 +68,7 @@ Testing decisions:
 - **E5 [R]** Generate into an existing layer vs a new layer both honored by the target selector.
 - **E6 [P]** Generate timing recorded vs soft budget.
 - **E7 [U]** Grouped/collapsible param sections keep the generate panel scannable (inventory groups).
+- **E8 [R+U]** Select Shape Field → dedicated editor appears → add a dynamic shape layer → generate a non-empty layer with the full shape stack persisted.
 
 ## Epic F — Step 3: Composition (layer arrangement)
 
@@ -146,7 +147,7 @@ Testing decisions:
 
 ## Coverage status
 
-The Playwright suite contains 84 tests covering 73 of the 86 story IDs above. Data-driven C7/C8 cases account for multiple tests under a single story ID.
+The Playwright suite contains 85 tests covering 74 of the 87 story IDs above. Data-driven C7/C8 cases account for multiple tests under a single story ID.
 
 ### Deferred stories
 
