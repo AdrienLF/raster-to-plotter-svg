@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 import re
 
@@ -130,6 +131,41 @@ class CompositionTest(unittest.TestCase):
         self.assertEqual(manifest["page"], A3_PAGE)
         self.assertEqual(manifest["layers"][0]["x"], 10)
         self.assertEqual(manifest["layers"][0]["y"], 20)
+
+    def test_compose_visible_svg_reports_progress_per_visible_layer(self):
+        comp = Composition()
+        comp.add_layer(LAYER_A, name="A", kind="svg", source={})
+        comp.add_layer(LAYER_B, name="B", kind="svg", source={})
+        hidden = comp.add_layer(LAYER_B, name="Hidden", kind="svg", source={})
+        hidden.visible = False
+
+        calls = []
+        compose_visible_svg(comp, on_progress=lambda done, total: calls.append((done, total)))
+
+        # Two visible layers: a tick before each (0, 1) then a final completion (2).
+        self.assertEqual(calls, [(0, 2), (1, 2), (2, 2)])
+
+    def test_layer_svg_zip_reports_progress_per_visible_layer(self):
+        comp = Composition()
+        comp.add_layer(LAYER_A, name="A", kind="svg", source={})
+        comp.add_layer(LAYER_B, name="B", kind="svg", source={})
+
+        calls = []
+        layer_svg_zip(comp, on_progress=lambda done, total: calls.append((done, total)))
+
+        self.assertEqual(calls, [(0, 2), (1, 2), (2, 2)])
+
+    def test_compose_visible_svg_aborts_when_on_progress_raises(self):
+        comp = Composition()
+        comp.add_layer(LAYER_A, name="A", kind="svg", source={})
+        comp.add_layer(LAYER_B, name="B", kind="svg", source={})
+
+        def cancel_after_first(done, total):
+            if done >= 1:
+                raise RuntimeError("__stopped__")
+
+        with self.assertRaisesRegex(RuntimeError, "__stopped__"):
+            compose_visible_svg(comp, on_progress=cancel_after_first)
 
     def test_layer_actions_reorder_duplicate_and_delete(self):
         comp = Composition()
@@ -362,3 +398,51 @@ class CompositionApiTest(unittest.TestCase):
             layer_svg = zf.read("00_A4_Layer.svg").decode()
         self.assertIn('width="210mm"', layer_svg)
         self.assertNotIn('width="297mm"', layer_svg)
+
+    def test_export_emits_per_layer_progress_events(self):
+        server._project.composition.add_layer(LAYER_A, "A", "svg", {})
+        server._project.composition.add_layer(LAYER_B, "B", "svg", {})
+
+        q = server._subscribe_events()
+        try:
+            self.client.get("/api/export")
+        finally:
+            server._unsubscribe_events(q)
+
+        progress = []
+        while True:
+            try:
+                evt = q.get_nowait()
+            except Exception:
+                break
+            if evt.get("t") == "progress" and evt.get("phase") == "export":
+                progress.append(evt)
+
+        self.assertTrue(progress, "expected export progress events")
+        self.assertEqual(progress[-1]["done"], 2)
+        self.assertEqual(progress[-1]["total"], 2)
+
+    def test_export_cancel_endpoint_sets_stop_flag(self):
+        server._export_stop_event.clear()
+        try:
+            response = self.client.post("/api/export/cancel")
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(server._export_stop_event.is_set())
+        finally:
+            server._export_stop_event.clear()
+
+    def test_cancelled_export_returns_409_without_a_partial_file(self):
+        server._project.composition.add_layer(LAYER_A, "A", "svg", {})
+
+        def fake_compose(comp, on_progress=None):
+            # Simulate a cancel arriving mid-compose.
+            server._export_stop_event.set()
+            on_progress(0, 1)  # raises __stopped__
+            return "<svg/>"
+
+        with mock.patch.object(server, "compose_visible_svg", fake_compose):
+            response = self.client.get("/api/export")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(response.get_json().get("canceled"))
+        server._export_stop_event.clear()

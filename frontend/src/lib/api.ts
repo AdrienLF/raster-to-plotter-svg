@@ -1,6 +1,10 @@
 import { studio, pushLog, reportError } from "./state.svelte";
 import type { CompositionLayerT, MaskShape, Param, PathfindingStyleT, SegmentationPromptT } from "./types";
 
+// Active export request, so the Cancel button can abort it client-side while
+// /api/export/cancel stops the server-side compose.
+let exportController: AbortController | null = null;
+
 async function jget(url: string) {
   const r = await fetch(url);
   if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error || r.statusText);
@@ -662,6 +666,56 @@ export const api = {
 
   exportUrl(split = false) {
     return split ? "/api/export?split=1" : "/api/export";
+  },
+
+  // Fetch the export (so we get progress via the event stream + real error
+  // handling) and trigger a download from the resulting blob.
+  async exportSvg(split = false) {
+    if (studio.exporting) return;
+    const controller = new AbortController();
+    exportController = controller;
+    studio.exporting = true;
+    studio.processing = true;
+    studio.progress = 0;
+    studio.status = "Exporting…";
+    try {
+      const res = await fetch(this.exportUrl(split), { signal: controller.signal });
+      if (res.status === 409) {
+        studio.status = "Export canceled"; // server stopped mid-compose
+        return;
+      }
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = split ? "plot_layers.zip" : "plot.svg";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      studio.status = "Exported";
+    } catch (e: any) {
+      if (e?.name === "AbortError") studio.status = "Export canceled";
+      else reportError("Export failed", e);
+    } finally {
+      studio.exporting = false;
+      studio.processing = false;
+      studio.progress = 0;
+      exportController = null;
+    }
+  },
+
+  async cancelExport() {
+    exportController?.abort();
+    try {
+      await fetch("/api/export/cancel", { method: "POST" });
+    } catch {
+      /* server already finished or unreachable */
+    }
   },
 
   async plot() {

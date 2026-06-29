@@ -355,16 +355,27 @@ def _upper_occlusion_masks(visible: list[CompositionLayer], index: int) -> list[
     return masks
 
 
-def compose_visible_svg(comp: Composition) -> str:
+def compose_visible_svg(comp: Composition, on_progress=None) -> str:
+    """Compose all visible layers into one page SVG.
+
+    ``on_progress(done, total)`` is called before each layer (``done`` = layers
+    finished so far) and once at completion. Raising from it aborts the compose,
+    which the server uses for cancellation.
+    """
     body = []
     visible = [layer for layer in comp.layers if layer.visible]
+    total = len(visible)
     for index, layer in enumerate(visible):
+        if on_progress:
+            on_progress(index, total)
         exclude_masks = _upper_occlusion_masks(visible, index)
         body.append(
             f'<g data-layer-id="{_attr(layer.id)}" data-layer-name="{_attr(layer.name)}" '
             f'transform="{_layer_transform(layer)}">'
             f"{_layer_body(layer, exclude_masks)}</g>"
         )
+    if on_progress:
+        on_progress(total, total)
     return _svg_document(comp.page["width"], comp.page["height"], "\n".join(body))
 
 
@@ -392,16 +403,26 @@ def safe_name(value: str) -> str:
     return cleaned or "Layer"
 
 
-def layer_svg_zip(comp: Composition) -> bytes:
+def layer_svg_zip(comp: Composition, on_progress=None) -> bytes:
+    """Zip one SVG per visible layer plus a manifest.
+
+    ``on_progress(done, total)`` follows the same contract as
+    ``compose_visible_svg``; raising from it aborts the export.
+    """
     manifest = {"page": comp.page, "layers": []}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         visible = [layer for layer in comp.layers if layer.visible]
+        total = len(visible)
         for index, layer in enumerate(visible):
+            if on_progress:
+                on_progress(index, total)
             filename = f"{index:02d}_{safe_name(layer.name)}.svg"
             zf.writestr(filename, layer_bound_svg(layer))
             manifest["layers"].append(
                 {**layer.to_dict(include_svg=False), "filename": filename, "order": index}
             )
+        if on_progress:
+            on_progress(total, total)
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
     return buf.getvalue()

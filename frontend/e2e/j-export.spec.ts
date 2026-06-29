@@ -91,6 +91,19 @@ test("J5: export SVG latency for a multi-layer drawing", async ({ request, baseU
   console.log(`[perf] J5: export ${duration_ms}ms`);
 });
 
+// J6: File → Export SVG triggers a client-side download (fetch + blob path).
+test("J6: Export SVG menu action downloads plot.svg", async ({ page, request, baseURL }) => {
+  await setupLayerProject(request, baseURL!, "E2E J6");
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "File" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export SVG" }).click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe("plot.svg");
+});
+
 // J4: hidden layers are excluded — when all layers are hidden, Export is disabled in the UI.
 // (The API would fall back to _drawing; the UI gate is the user-visible protection.)
 test("J4: hidden-only composition disables Export SVG in the UI", async ({ page, request, baseURL }) => {

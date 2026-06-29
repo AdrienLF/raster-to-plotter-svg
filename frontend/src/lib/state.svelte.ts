@@ -98,6 +98,7 @@ class Studio {
   progress = $state(0);
   processing = $state(false);
   plotting = $state(false);
+  exporting = $state(false);
   log = $state<string[]>([]);
 
   pfmName = $derived(

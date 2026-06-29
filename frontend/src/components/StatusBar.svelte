@@ -1,5 +1,6 @@
 <script lang="ts">
   import { studio } from "../lib/state.svelte";
+  import { api } from "../lib/api";
 
   const gpu = $derived(studio.backend.startsWith("torch"));
   const lastLog = $derived(studio.log[studio.log.length - 1] ?? "");
@@ -22,6 +23,9 @@
   <span class="state" class:err={isError} title={studio.status}>{studio.status}</span>
   {#if studio.processing || studio.plotting}
     <div class="bar"><div class="fill" style:width={`${studio.progress * 100}%`}></div></div>
+  {/if}
+  {#if studio.exporting}
+    <button class="cancel" onclick={() => api.cancelExport()}>Cancel</button>
   {/if}
   <div class="spacer"></div>
   {#if studio.plotting && studio.plotProgress}
@@ -78,6 +82,19 @@
     height: 100%;
     background: var(--accent);
     transition: width 0.15s;
+  }
+  .cancel {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 3px;
+    padding: 1px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .cancel:hover {
+    border-color: var(--danger, #ff6b6b);
+    color: var(--danger, #ff6b6b);
   }
   .log {
     max-width: 360px;

@@ -21,7 +21,7 @@
   }
 
   function exportSvg(split: boolean) {
-    window.location.href = api.exportUrl(split);
+    void api.exportSvg(split);
   }
 
   async function newProject() {

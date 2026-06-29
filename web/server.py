@@ -123,6 +123,8 @@ cfg = load_cfg()
 
 _plot_thread = None
 _stop_event  = threading.Event()
+# Separate from the plot stop so cancelling an export never aborts a running plot.
+_export_stop_event = threading.Event()
 _subscribers = set()
 _subscribers_lock = threading.Lock()
 _last_events = {}
@@ -2565,14 +2567,30 @@ def api_version_thumb(vid):
 @app.route('/api/export')
 def api_export():
     if _composition_has_visible_layers():
-        if request.args.get('split') == '1':
-            return send_file(io.BytesIO(layer_svg_zip(_composition())),
-                             mimetype='application/zip',
-                             as_attachment=True,
-                             download_name='plot_layers.zip')
-        svg = compose_visible_svg(_composition())
-        return send_file(io.BytesIO(svg.encode()), mimetype='image/svg+xml',
-                         as_attachment=True, download_name='plot.svg')
+        # Composing/clipping a complex multi-layer page can take minutes, so
+        # report per-layer progress over the event stream and let the client
+        # cancel it via /api/export/cancel.
+        _export_stop_event.clear()
+
+        def on_progress(done, total):
+            emit('progress', phase='export', done=done, total=total)
+            if _export_stop_event.is_set():
+                raise RuntimeError('__stopped__')
+
+        try:
+            if request.args.get('split') == '1':
+                data = layer_svg_zip(_composition(), on_progress=on_progress)
+                return send_file(io.BytesIO(data),
+                                 mimetype='application/zip',
+                                 as_attachment=True,
+                                 download_name='plot_layers.zip')
+            svg = compose_visible_svg(_composition(), on_progress=on_progress)
+            return send_file(io.BytesIO(svg.encode()), mimetype='image/svg+xml',
+                             as_attachment=True, download_name='plot.svg')
+        except RuntimeError as exc:
+            if '__stopped__' in str(exc):
+                return jsonify(error='Export canceled', canceled=True), 409
+            raise
     if _drawing is None:
         # generator output (or uploaded SVG): export the current SVG as-is
         _ensure_current_svg()
@@ -2592,6 +2610,13 @@ def api_export():
     svg = svg_io.to_svg(_drawing)
     return send_file(io.BytesIO(svg.encode()), mimetype='image/svg+xml',
                      as_attachment=True, download_name='plot.svg')
+
+
+@app.route('/api/export/cancel', methods=['POST'])
+def api_export_cancel():
+    # Signals an in-flight composition export to abort at its next layer boundary.
+    _export_stop_event.set()
+    return jsonify(ok=True)
 
 
 if __name__ == '__main__':
