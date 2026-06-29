@@ -370,82 +370,30 @@ class WorkflowLayerSeparationTest(unittest.TestCase):
 
 
 class LocalSam2SetupTest(unittest.TestCase):
-    def test_status_auto_installs_missing_package_and_downloads_checkpoint(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            checkpoint = Path(tmp) / "sam2.1_hiera_tiny.pt"
-            adapter = server.LocalSam2Adapter(checkpoint=str(checkpoint))
-            adapter.auto_install = True  # opt in to pip-installing the package
-            installed = {"ready": False}
+    def test_missing_sam2_reports_platform_setup_command_without_installing(self):
+        adapter = server.LocalSam2Adapter(checkpoint="missing.pt")
 
-            def has_module(name):
-                return name == "torch" or installed["ready"]
+        with mock.patch.object(adapter, "_has_module", return_value=False):
+            status = adapter.status()
 
-            with mock.patch.object(adapter, "_has_module", side_effect=lambda name: name == "torch"), \
-                mock.patch.object(adapter, "_install_sam2") as install, \
-                mock.patch.object(adapter, "_download_checkpoint") as download:
-                adapter._has_module.side_effect = has_module
-                install.side_effect = lambda: installed.__setitem__("ready", True)
-                download.side_effect = lambda: checkpoint.write_bytes(b"model")
+        self.assertFalse(status["available"])
+        self.assertEqual(status["setup_state"], "error")
+        self.assertIn("setup-windows.bat", status["error"])
+        self.assertNotIn("pip install", status["error"])
 
-                adapter.status()  # kicks off async background prepare
-                if adapter._setup_thread:
-                    adapter._setup_thread.join(timeout=5)
-                status = adapter.status()  # reflects completed setup
+    def test_status_does_not_start_background_setup(self):
+        adapter = server.LocalSam2Adapter(checkpoint="missing.pt")
 
-            self.assertTrue(status["available"])
-            install.assert_called_once()
-            download.assert_called_once()
+        with mock.patch.object(adapter, "prepare_async") as prepare:
+            adapter.status()
 
-    def test_missing_package_without_auto_install_reports_manual_instructions(self):
-        # The safe default: don't pip-install (that can replace CUDA torch with a
-        # CPU build); tell the user how to install instead.
-        with tempfile.TemporaryDirectory() as tmp:
-            adapter = server.LocalSam2Adapter(checkpoint=str(Path(tmp) / "missing.pt"))
-            self.assertFalse(adapter.auto_install)
+        prepare.assert_not_called()
 
-            with mock.patch.object(adapter, "_has_module", return_value=False), \
-                mock.patch.object(adapter, "_install_sam2") as install:
-                adapter.status()
-                if adapter._setup_thread:
-                    adapter._setup_thread.join(timeout=5)
-                status = adapter.status()
-
-            install.assert_not_called()
-            self.assertFalse(status["available"])
-            self.assertEqual(status["setup_state"], "error")
-            self.assertIn("SAM 2 needs", status["error"])
-
-    def test_status_reports_setup_error_when_auto_install_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            adapter = server.LocalSam2Adapter(checkpoint=str(Path(tmp) / "missing.pt"))
-            adapter.auto_install = True
-
-            with mock.patch.object(adapter, "_has_module", return_value=False), \
-                mock.patch.object(adapter, "_install_sam2", side_effect=RuntimeError("install failed")):
-                adapter.status()  # kicks off async background prepare
-                if adapter._setup_thread:
-                    adapter._setup_thread.join(timeout=5)
-                status = adapter.status()  # reflects the failed setup
-
-            self.assertFalse(status["available"])
-            self.assertEqual(status["setup_state"], "error")
-            self.assertIn("install failed", status["error"])
-
-    def test_install_sam2_falls_back_to_uv_when_pip_module_is_missing(self):
-        adapter = server.LocalSam2Adapter()
-        calls = []
-
-        def fake_run(cmd, **kwargs):
-            calls.append(cmd)
-            stderr = "No module named pip" if len(calls) == 1 else ""
-            return mock.Mock(returncode=1 if len(calls) == 1 else 0, stderr=stderr, stdout="")
-
-        with mock.patch("subprocess.run", side_effect=fake_run), \
-            mock.patch("importlib.invalidate_caches"):
-            adapter._install_sam2()
-
-        self.assertEqual(calls[0][1:4], ["-m", "pip", "install"])
-        self.assertEqual(calls[1][0:3], ["uv", "pip", "install"])
+    def test_server_source_contains_no_package_installer(self):
+        source = (Path(server.__file__)).read_text(encoding="utf-8")
+        self.assertNotIn("_install_sam2", source)
+        self.assertNotIn("SAM2_AUTO_INSTALL", source)
+        self.assertNotIn("'uv', 'pip', 'install'", source)
 
     def test_device_prefers_cpu_when_cuda_and_mps_are_unavailable(self):
         torch = mock.Mock()

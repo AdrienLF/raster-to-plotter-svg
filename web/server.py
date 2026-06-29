@@ -346,7 +346,6 @@ class LocalSam2Adapter:
         'sam2.1_hiera_base_plus': 'configs/sam2.1/sam2.1_hiera_b+.yaml',
         'sam2.1_hiera_large':     'configs/sam2.1/sam2.1_hiera_l.yaml',
     }
-    PACKAGE_URL = 'git+https://github.com/facebookresearch/sam2.git'
 
     def __init__(self, checkpoint=None, config=None, model=None):
         self._predictor = None
@@ -360,13 +359,10 @@ class LocalSam2Adapter:
         # registry — power-user escape hatch kept from the original adapter.
         self._pin_checkpoint = checkpoint or os.environ.get('SAM2_CHECKPOINT')
         self._pin_config = config or os.environ.get('SAM2_CONFIG')
-        self.package_url = os.environ.get('SAM2_PACKAGE_URL', self.PACKAGE_URL)
+        # SAM2_AUTO_SETUP gates only checkpoint download (a plain file). Packages
+        # are never installed at runtime — the setup scripts own that. Disable it
+        # in tests/power-user setups to require an explicit checkpoint.
         self.auto_setup = os.environ.get('SAM2_AUTO_SETUP', '1') not in ('0', 'false', 'False')
-        # Auto pip-installing the sam2 package pulls torchvision from the default
-        # index, which can replace a CUDA PyTorch with a CPU build — silently
-        # turning the whole engine CPU-only. So package install is opt-in;
-        # checkpoint download (a plain file) stays automatic.
-        self.auto_install = os.environ.get('SAM2_AUTO_INSTALL', '0') not in ('0', 'false', 'False')
         self._apply_model(model if model in self.MODELS else 'sam2.1_hiera_tiny')
 
     def _apply_model(self, model):
@@ -398,29 +394,22 @@ class LocalSam2Adapter:
 
         return importlib.util.find_spec(name) is not None
 
-    def _install_sam2(self):
-        import importlib
-        import subprocess
-        import sys
+    def _missing(self):
+        missing = [
+            name for name in ('sam2', 'torch', 'torchvision')
+            if not self._has_module(name)
+        ]
+        if not Path(self.checkpoint).exists():
+            missing.append('checkpoint')
+        return missing
 
-        self.setup_state = 'installing'
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', self.package_url],
-            check=False,
-            capture_output=True,
-            text=True,
+    @staticmethod
+    def _setup_incomplete_error(missing):
+        return (
+            'Plotter Studio setup is incomplete: missing '
+            + ', '.join(missing)
+            + '. Run setup-windows.bat on Windows or ./setup-macos.command on macOS.'
         )
-        if result.returncode != 0 and 'No module named pip' in (result.stderr or ''):
-            result = subprocess.run(
-                ['uv', 'pip', 'install', self.package_url],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or '').strip()
-            raise RuntimeError(f'SAM 2 install failed: {detail}')
-        importlib.invalidate_caches()
 
     def _download_checkpoint(self):
         import urllib.request
@@ -440,25 +429,20 @@ class LocalSam2Adapter:
         self.setup_progress = 1.0
 
     def _ensure_setup(self):
-        if not self.auto_setup:
-            return
+        # Never install packages at runtime — that is the setup scripts' job.
+        # Missing modules are a hard, actionable error.
         missing_modules = [
-            name for name in ('sam2', 'torchvision') if not self._has_module(name)
+            name for name in ('sam2', 'torch', 'torchvision')
+            if not self._has_module(name)
         ]
         if missing_modules:
-            if not self.auto_install:
-                raise RuntimeError(
-                    'SAM 2 needs ' + ', '.join(missing_modules) + '. Install them '
-                    'WITHOUT replacing your GPU PyTorch — match your existing torch '
-                    'build, e.g.: uv pip install torchvision '
-                    '"git+https://github.com/facebookresearch/sam2.git" '
-                    '(add --index-url https://download.pytorch.org/whl/cuXXX for CUDA). '
-                    'Or set SAM2_AUTO_INSTALL=1 to let the app pip-install it '
-                    '(may switch torch to a CPU build).'
-                )
-            self._install_sam2()
+            raise RuntimeError(self._setup_incomplete_error(missing_modules))
+        # Checkpoint is a plain file: download it on demand when auto-setup is on.
         if not Path(self.checkpoint).exists():
-            self._download_checkpoint()
+            if self.auto_setup:
+                self._download_checkpoint()
+            else:
+                raise RuntimeError(self._setup_incomplete_error(['checkpoint']))
         self.setup_state = 'ready'
 
     def prepare_async(self):
@@ -519,41 +503,30 @@ class LocalSam2Adapter:
             raise RuntimeError(self._error) from exc
 
     def status(self):
-        # Non-blocking: never install/download inline (that would hang the
-        # request and app boot). Report current state and keep a background
-        # prepare running so the UI can poll for progress.
+        # Purely observational: never install, download, or start background
+        # setup. Report the current state; missing pieces are a setup-incomplete
+        # error pointing at the platform setup scripts.
         if self._predictor is not None:
             return {'available': True, 'backend': 'sam2', 'model': self.model,
                     'models': list(self.MODELS), 'setup_state': 'ready', 'progress': 1.0}
-        missing = []
-        if not self._has_module('sam2'):
-            missing.append('sam2')
-        if not self._has_module('torch'):
-            missing.append('torch')
-        if not self._has_module('torchvision'):
-            missing.append('torchvision')
-        if not Path(self.checkpoint).exists():
-            missing.append('checkpoint')
+        missing = self._missing()
         available = not missing and self._error is None
-        if not available and self._error is None and self.auto_setup:
-            self.prepare_async()  # keep working toward ready between polls
-        setup_state = 'ready' if available else self.setup_state
         payload = {
             'available': available,
             'backend': 'sam2',
             'model': self.model,
             'models': list(self.MODELS),
             'checkpoint': self.checkpoint,
-            'setup_state': setup_state,
+            'setup_state': 'ready' if available else self.setup_state,
             'progress': round(self.setup_progress, 3),
             'auto_setup': self.auto_setup,
         }
         if self._error:
             payload['setup_state'] = 'error'
             payload['error'] = self._error
-        elif missing and not self.auto_setup:
-            # Genuinely stuck (no auto-setup) — surface what's missing as an error.
-            payload['error'] = 'Missing ' + ', '.join(missing)
+        elif missing:
+            payload['setup_state'] = 'error'
+            payload['error'] = self._setup_incomplete_error(missing)
         return payload
 
     def predict(self, image, positive_points, negative_points):
