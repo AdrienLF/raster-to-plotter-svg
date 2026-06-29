@@ -2400,7 +2400,8 @@ def _generate_worker(gid, params, seed, request_id=None):
     try:
         emit('proc', state='running', pfm=gid)
         gen = get_generator(gid)
-        vals = validate(gen['params'], params)
+        normalizer = gen.get('normalize')
+        vals = normalizer(params) if normalizer else validate(gen['params'], params)
         emit('proc', state='progress', stage='generating', frac=0.3)
         with ev.time('generating'):
             lines, w_cm, h_cm = gen['fn'](vals, seed=seed)          # cm
@@ -2441,7 +2442,11 @@ def api_generate_schema(gid):
     if gid not in GENERATORS:
         return jsonify(error='Unknown generator'), 404
     g = get_generator(gid)
-    return jsonify(id=g['id'], name=g['name'], params=schema_json(g['params']))
+    payload = {'id': g['id'], 'name': g['name'], 'params': schema_json(g['params'])}
+    for key in ('editor', 'defaults', 'shape_types'):
+        if key in g:
+            payload[key] = g[key]
+    return jsonify(payload)
 
 @app.route('/api/generate', methods=['POST'])
 def api_generate():

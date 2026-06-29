@@ -13,6 +13,8 @@ from engine.shape_field import (
     shape_field,
 )
 from engine.params import defaults
+from engine.generate import get_generator, list_generators
+import web.server as server
 
 
 class ShapeLayerNormalizationTest(unittest.TestCase):
@@ -134,3 +136,19 @@ class ShapeFieldGenerationTest(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "50,000"):
             shape_field(params, seed=0)
+
+
+class ShapeFieldRegistryTest(unittest.TestCase):
+    def test_shape_field_is_selectable_with_editor_metadata(self):
+        self.assertIn({"id": "shape_field", "name": "Shape Field"}, list_generators())
+        generator = get_generator("shape_field")
+        self.assertEqual(generator["editor"], "shape_field")
+        self.assertEqual(generator["shape_types"], list(SHAPE_TYPES))
+        self.assertEqual(len(generator["defaults"]["shape_layers"]), 3)
+
+    def test_schema_endpoint_exposes_dedicated_editor_contract(self):
+        client = server.app.test_client()
+        payload = client.get("/api/generate/shape_field/schema").get_json()
+        self.assertEqual(payload["editor"], "shape_field")
+        self.assertEqual(payload["shape_types"], list(SHAPE_TYPES))
+        self.assertEqual(len(payload["defaults"]["shape_layers"]), 3)

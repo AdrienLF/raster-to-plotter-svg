@@ -11,10 +11,18 @@ from __future__ import annotations
 
 import math
 import random
+from copy import deepcopy
 
 from .geometry import clip_polyline
 from .genframe import FRAMEWORK_PARAMS, convex_interval
 from .params import Param
+from .shape_field import (
+    DEFAULT_SHAPE_LAYERS,
+    SHAPE_FIELD_PARAMS,
+    SHAPE_TYPES,
+    normalize_shape_field_params,
+    shape_field,
+)
 
 Line = list[tuple[float, float]]
 
@@ -186,7 +194,7 @@ _SPOKES_PARAMS = [
     Param("seed", "int", 0, group="Spokes & Circles"),
 ]
 
-_PAGE_PARAMS = [
+PAGE_PARAMS = [
     Param("page_width", "float", 29.7, group="Page", min=1, max=120, help="cm"),
     Param("page_height", "float", 42.0, group="Page", min=1, max=120, help="cm"),
     Param("side_margin", "float", 1.9, group="Page", min=0, max=20, help="cm"),
@@ -194,12 +202,26 @@ _PAGE_PARAMS = [
     Param("draw_margin", "bool", False, group="Page"),
 ]
 
+_SHAPE_FIELD_ALL_PARAMS = SHAPE_FIELD_PARAMS + PAGE_PARAMS + FRAMEWORK_PARAMS
+
 GENERATORS = {
     "spokes_and_circles": {
         "id": "spokes_and_circles",
         "name": "Spokes & Circles",
-        "params": _SPOKES_PARAMS + _PAGE_PARAMS + FRAMEWORK_PARAMS,
+        "params": _SPOKES_PARAMS + PAGE_PARAMS + FRAMEWORK_PARAMS,
         "fn": spokes_and_circles,
+    },
+    "shape_field": {
+        "id": "shape_field",
+        "name": "Shape Field",
+        "editor": "shape_field",
+        "params": _SHAPE_FIELD_ALL_PARAMS,
+        "defaults": {"shape_layers": deepcopy(DEFAULT_SHAPE_LAYERS)},
+        "shape_types": list(SHAPE_TYPES),
+        "normalize": lambda values: normalize_shape_field_params(
+            _SHAPE_FIELD_ALL_PARAMS, values
+        ),
+        "fn": shape_field,
     },
 }
 
