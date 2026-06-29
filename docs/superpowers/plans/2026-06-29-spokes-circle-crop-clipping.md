@@ -118,7 +118,7 @@ class SpokesAndCirclesCropTest(unittest.TestCase):
 Run:
 
 ```powershell
-uv run pytest tests/test_generate_crop.py -v
+uv run python -m pytest tests/test_generate_crop.py -v
 ```
 
 Expected: both tests fail. The first reports `actual` is unexpectedly `None`; the second reports at least one generated line overlapping a cluster crop.
@@ -170,7 +170,7 @@ def convex_interval(p0, p1, poly):
 Run:
 
 ```powershell
-uv run pytest tests/test_generate_crop.py -v
+uv run python -m pytest tests/test_generate_crop.py -v
 ```
 
 Expected: 2 passed.
@@ -215,7 +215,7 @@ Append this method to `SpokesAndCirclesCropTest`:
 Run:
 
 ```powershell
-uv run pytest tests/test_generate_crop.py::SpokesAndCirclesCropTest::test_structural_spoke_stops_at_its_cluster_crop -v
+uv run python -m pytest tests/test_generate_crop.py::SpokesAndCirclesCropTest::test_structural_spoke_stops_at_its_cluster_crop -v
 ```
 
 Expected: FAIL with `line 0 overlaps crop 0`.
@@ -257,7 +257,7 @@ Before appending rays, prepend the cropped spokes to the output:
 Run:
 
 ```powershell
-uv run pytest tests/test_generate_crop.py -v
+uv run python -m pytest tests/test_generate_crop.py -v
 ```
 
 Expected: 3 passed.
@@ -291,7 +291,7 @@ Expected: exit 0 with no output.
 Run:
 
 ```powershell
-uv run pytest -q
+uv run python -m pytest -q
 ```
 
 Expected: all tests pass with no failures.

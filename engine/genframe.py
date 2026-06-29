@@ -319,14 +319,21 @@ def convex_interval(p0, p1, poly):
     """Parametric interval [u0,u1] of segment p0->p1 that lies inside the convex
     polygon `poly` (clip against each edge half-plane). None if no overlap.
     Reads only [0],[1] of each point, so works for 2D or 3D points."""
-    n = len(poly)
-    cx = sum(pt[0] for pt in poly) / n
-    cy = sum(pt[1] for pt in poly) / n
+    vertices = list(poly)
+    if len(vertices) >= 2 and all(
+        math.isclose(vertices[0][axis], vertices[-1][axis], abs_tol=1e-9)
+        for axis in (0, 1)
+    ):
+        vertices.pop()
+    if len(vertices) < 3:
+        return None
+
+    n = len(vertices)
+    cx = sum(pt[0] for pt in vertices) / n
+    cy = sum(pt[1] for pt in vertices) / n
     x0, y0 = p0[0], p0[1]
     dx, dy = p1[0] - x0, p1[1] - y0
-    edges = list(zip(poly, poly[1:]))
-    if poly[0] != poly[-1]:
-        edges.append((poly[-1], poly[0]))
+    edges = zip(vertices, vertices[1:] + vertices[:1])
     u0, u1 = 0.0, 1.0
     for a, b in edges:
         ex, ey = b[0] - a[0], b[1] - a[1]
