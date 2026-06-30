@@ -101,6 +101,43 @@ def lines_to_svg(lines, w_mm: float, h_mm: float,
     )
 
 
+def _lines_group(pen, lines) -> str:
+    """One Inkscape pen layer for a flat list of polylines (already in mm)."""
+    colour = getattr(pen, "colour", "#000000")
+    stroke_mm = max(0.05, getattr(pen, "stroke_mm", 0.5))
+    name = getattr(pen, "name", "Pen")
+    body = []
+    for line in lines:
+        if len(line) < 2:
+            continue
+        d = " ".join(("M" if i == 0 else "L") + f"{_fmt(x)},{_fmt(y)}"
+                     for i, (x, y) in enumerate(line))
+        body.append(f'<path d="{d}"/>')
+    return (
+        f'<g inkscape:groupmode="layer" inkscape:label="{name}" '
+        f'fill="none" stroke="{colour}" stroke-width="{_fmt(stroke_mm)}" '
+        f'stroke-linecap="round" stroke-linejoin="round">\n' + "\n".join(body) + "\n</g>"
+    )
+
+
+def lines_to_svg_layers(pen_lines, w_mm: float, h_mm: float) -> str:
+    """Multi-pen SVG for generators: one Inkscape layer group per pen.
+
+    ``pen_lines`` is a list of ``(pen, list[Line])``; pens with no drawable lines
+    are skipped. Mirrors the PFM multi-layer structure so export/parsing are
+    unchanged.
+    """
+    groups = [
+        _lines_group(pen, lines)
+        for pen, lines in pen_lines
+        if any(len(ln) >= 2 for ln in lines)
+    ]
+    return (
+        f'<svg {_SVG_NS} width="{_fmt(w_mm)}mm" height="{_fmt(h_mm)}mm" '
+        f'viewBox="0 0 {_fmt(w_mm)} {_fmt(h_mm)}">\n' + "\n".join(groups) + "\n</svg>"
+    )
+
+
 def lines_length_mm(lines) -> float:
     import math
     total = 0.0

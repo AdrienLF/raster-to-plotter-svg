@@ -2404,15 +2404,41 @@ def _generate_worker(gid, params, seed, request_id=None):
         vals = normalizer(params) if normalizer else validate(gen['params'], params)
         emit('proc', state='progress', stage='generating', frac=0.3)
         with ev.time('generating'):
-            lines, w_cm, h_cm = gen['fn'](vals, seed=seed)          # cm
+            result = gen['fn'](vals, seed=seed)          # cm
+        lines, w_cm, h_cm = result[:3]
+        line_pens = result[3] if len(result) > 3 else None
         emit('proc', state='progress', stage='transforming', frac=0.6)
-        with ev.time('transforming'):
-            lines, extras = apply_framework(lines, w_cm, h_cm, vals, seed)
-        lines = lines + extras
-        lines = [[(x * 10.0, y * 10.0) for x, y in ln] for ln in lines]  # cm -> mm
         w_mm, h_mm = w_cm * 10.0, h_cm * 10.0
-        pen = _project.drawing_set.active()[0]
-        svg = svg_io.lines_to_svg(lines, w_mm, h_mm, colour=pen.colour, stroke_mm=pen.stroke_mm)
+        to_mm = lambda L: [[(x * 10.0, y * 10.0) for x, y in ln] for ln in L]  # cm -> mm
+        pens = _project.drawing_set.active()
+
+        if line_pens is None:
+            with ev.time('transforming'):
+                lines, extras = apply_framework(lines, w_cm, h_cm, vals, seed)
+            drawn = to_mm(lines + extras)
+            pen = pens[0]
+            svg = svg_io.lines_to_svg(drawn, w_mm, h_mm, colour=pen.colour, stroke_mm=pen.stroke_mm)
+            per_pen = [{'name': pen.name, 'colour': pen.colour, 'count': len(drawn)}]
+        else:
+            with ev.time('transforming'):
+                lines, extras, line_pens = apply_framework(
+                    lines, w_cm, h_cm, vals, seed, tags=line_pens)
+            lines, extras = to_mm(lines), to_mm(extras)
+            # Map each line's pen bucket to a real pen (cycling); extras + untagged
+            # lines draw with the first/active pen.
+            n = len(pens)
+            buckets = [[] for _ in pens]
+            for ln, tag in zip(lines, line_pens):
+                idx = 0 if tag is None else (tag % n + n) % n
+                buckets[idx].append(ln)
+            # Drawn framework outlines (margin/rod/crop) use the chosen border pen.
+            border_idx = (int(vals.get("pen_border", 0)) % n + n) % n
+            buckets[border_idx].extend(extras)
+            pen_lines = list(zip(pens, buckets))
+            svg = svg_io.lines_to_svg_layers(pen_lines, w_mm, h_mm)
+            drawn = [ln for b in buckets for ln in b]
+            per_pen = [{'name': pn.name, 'colour': pn.colour, 'count': len(b)}
+                       for pn, b in pen_lines if b]
         _drawing = None                       # generators output flat polylines, not a Drawing
         _set_workflow_layer(
             svg,
@@ -2420,15 +2446,15 @@ def _generate_worker(gid, params, seed, request_id=None):
             'generate',
             {'generator_id': gid, 'params': vals},
         )
-        length_mm = round(svg_io.lines_length_mm(lines))
+        length_mm = round(svg_io.lines_length_mm(drawn))
         emit('proc', state='done',
              svg=_current_svg.decode('utf-8', 'replace') if _current_svg else svg,
              composition=_composition_payload(),
-             total=len(lines),
+             total=len(drawn),
              length_mm=length_mm,
              backend='generator',
-             per_pen=[{'name': pen.name, 'colour': pen.colour, 'count': len(lines)}])
-        ev.emit('success', shapes=len(lines), length_mm=length_mm)
+             per_pen=per_pen)
+        ev.emit('success', shapes=len(drawn), length_mm=length_mm)
     except Exception as exc:
         emit('proc', state='error', msg=str(exc))
         ev.emit('error', level=logging.ERROR, error=str(exc))

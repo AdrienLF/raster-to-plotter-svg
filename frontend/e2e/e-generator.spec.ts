@@ -344,3 +344,82 @@ test("E9: generator switch waits for Generate; overwrite warning offers a new la
   expect(withNew.layers.find((layer) => layer.id !== layerId)?.source.generator_id).toBe("shape_field");
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
 });
+
+// E10: Spokes & Circles distributes the drawing-set's pens across elements — the
+// generated layer's SVG carries one Inkscape pen group per active pen colour.
+test("E10: spokes_and_circles cycles pens across spokes/circles", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E E10");
+  // Three enabled pens, distinct colours.
+  const pen = (name: string, colour: string) => ({
+    name, type: "Generic", colour, weight: 1, stroke_mm: 0.5, enabled: true,
+  });
+  await request.post(`${baseURL}/api/pens`, {
+    data: {
+      pens: [pen("P1", "#ff0000"), pen("P2", "#00ff00"), pen("P3", "#0000ff")],
+      distribution_type: "luminance",
+      distribution_order: "darkest",
+    },
+  });
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "＋ Generator" }).click();
+  await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
+
+  // Enable pen cycling in the new Pens tab, then generate (no layer selected yet).
+  await gotoGenGroup(page, "Pens");
+  await page.getByRole("checkbox", { name: "Pen Cycle" }).check();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  await waitForGeneratedLayer(request, baseURL!);
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+
+  const composition = await getComposition(request, baseURL!);
+  const svg = composition.layers[0]?.svg ?? "";
+  const groups = (svg.match(/inkscape:groupmode="layer"/g) ?? []).length;
+  expect(groups, "one pen layer group per used pen").toBeGreaterThanOrEqual(3);
+  for (const colour of ["#ff0000", "#00ff00", "#0000ff"]) {
+    expect(svg, `pen ${colour} should appear`).toContain(colour);
+  }
+});
+
+// E11: editing a pen re-runs the generator so its pen cycle re-maps to the new
+// pen list (no explicit ✦ Generate needed).
+test("E11: editing a pen recalculates the generator pen cycle", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E E11");
+  const pen = (name: string, colour: string) => ({
+    name, type: "Generic", colour, weight: 1, stroke_mm: 0.5, enabled: true,
+  });
+  await request.post(`${baseURL}/api/pens`, {
+    data: {
+      pens: [pen("P1", "#ff0000"), pen("P2", "#00ff00")],
+      distribution_type: "luminance",
+      distribution_order: "darkest",
+    },
+  });
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "＋ Generator" }).click();
+  await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
+  await gotoGenGroup(page, "Pens");
+  await page.getByRole("checkbox", { name: "Pen Cycle" }).check();
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  await waitForGeneratedLayer(request, baseURL!);
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+  expect((await getComposition(request, baseURL!)).layers[0].svg).toContain("#ff0000");
+
+  // Recolour the first pen via the Pens panel — saving should re-run the generator.
+  await page.locator('.pen input[type="color"]').first().evaluate((el, v) => {
+    const input = el as HTMLInputElement;
+    input.value = v as string;
+    input.dispatchEvent(new Event("input", { bubbles: true }));   // updates bind:value
+    input.dispatchEvent(new Event("change", { bubbles: true }));  // triggers save()
+  }, "#123456");
+
+  await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => (composition.layers[0]?.svg ?? "").includes("#123456"),
+    "wait for the pen-edit recalc",
+    60_000,
+  );
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+});

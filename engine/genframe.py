@@ -194,10 +194,17 @@ def _d_params(v, prefix):
 
 # ── cropping (2D, after flatten) ─────────────────────────────────────────────────
 
-def _clip_lines(lines, seg_fn):
-    """Apply a per-segment clip that returns kept (a,b) pieces; stitch them."""
+def _clip_lines(lines, seg_fn, tags=None):
+    """Apply a per-segment clip that returns kept (a,b) pieces; stitch them.
+
+    When ``tags`` (a per-line list) is given, every output sub-line inherits its
+    source line's tag and ``(out, out_tags)`` is returned so a parallel pen-bucket
+    list stays aligned across the split/drop.
+    """
     out = []
-    for ln in lines:
+    out_tags: list | None = [] if tags is not None else None
+    for i, ln in enumerate(lines):
+        tag = tags[i] if tags is not None else None
         cur: Line = []
         for p0, p1 in zip(ln, ln[1:]):
             for a, b in seg_fn(p0, p1):
@@ -206,10 +213,14 @@ def _clip_lines(lines, seg_fn):
                 else:
                     if len(cur) >= 2:
                         out.append(cur)
+                        if out_tags is not None:
+                            out_tags.append(tag)
                     cur = [a, b]
         if len(cur) >= 2:
             out.append(cur)
-    return out
+            if out_tags is not None:
+                out_tags.append(tag)
+    return (out, out_tags) if tags is not None else out
 
 
 def _liang_barsky(p0, p1, rect):
@@ -401,12 +412,27 @@ def _circle_outline(cx, cy, size, sides, rotation):
 
 # ── the pipeline ─────────────────────────────────────────────────────────────────
 
-def apply_framework(lines, pw: float, ph: float, v: dict, seed: int = 0):
-    """Run the full framework pipeline. Returns (lines, extra_outline_lines)."""
+def apply_framework(lines, pw: float, ph: float, v: dict, seed: int = 0, tags=None):
+    """Run the full framework pipeline. Returns (lines, extra_outline_lines).
+
+    When ``tags`` (a per-line pen-bucket list) is provided it is threaded through
+    the only structure-changing step (``_clip_lines``) — every other transform is
+    per-line and order-preserving, and ``_decimate`` is 1:1 — so the returned
+    ``tags`` stay aligned with ``lines``; the 3-tuple ``(lines, extras, tags)`` is
+    returned. Extras (crop/rod/margin outlines) carry no tag.
+    """
+    track = tags is not None
     lines = [[(float(x), float(y), 0.0) for x, y in ln] for ln in lines]
 
+    def clip(seg_fn):
+        nonlocal lines, tags
+        if track:
+            lines, tags = _clip_lines(lines, seg_fn, tags)
+        else:
+            lines = _clip_lines(lines, seg_fn)
+
     if v["decimate"]:
-        lines = _decimate(lines, v["d_distance"])
+        lines = _decimate(lines, v["d_distance"])  # 1:1 per line — tags stay aligned
 
     # pre-transforms (around page centre)
     if v["pre_x"] != 1 or v["pre_y"] != 1 or v["pre_z"] != 1:
@@ -437,14 +463,14 @@ def apply_framework(lines, pw: float, ph: float, v: dict, seed: int = 0):
     lr, tb = _squarify_offsets(pw, ph, v["squarify"])
     margin = (v["side_margin"] + lr, v["top_bottom_margin"] + tb,
               pw - (v["side_margin"] + lr), ph - (v["top_bottom_margin"] + tb))
-    lines = _clip_lines(lines, lambda a, b: _seg_rect_inside(a, b, margin))
+    clip(lambda a, b: _seg_rect_inside(a, b, margin))
 
     extras = []
     if v["use_rod"]:
         rod = (v["rod_left"] + lr, v["rod_top"] + tb,
                pw - (v["rod_right"] + lr), ph - (v["rod_bottom"] + tb))
         keep_in = bool(v["rod_crop_outside"])
-        lines = _clip_lines(lines, lambda a, b: (_seg_rect_inside if keep_in else _seg_rect_outside)(a, b, rod))
+        clip(lambda a, b: (_seg_rect_inside if keep_in else _seg_rect_outside)(a, b, rod))
         if v["draw_rod"]:
             x0, y0, x1, y1 = rod
             extras.append([(x0, y0, 0.0), (x1, y0, 0.0), (x1, y1, 0.0), (x0, y1, 0.0), (x0, y0, 0.0)])
@@ -457,7 +483,7 @@ def apply_framework(lines, pw: float, ph: float, v: dict, seed: int = 0):
         keep_in = bool(v[f"{pre}_crop_outside"])
         seg = (lambda a, b, poly=poly: _seg_poly_inside(a, b, poly)) if keep_in \
             else (lambda a, b, poly=poly: _seg_poly_outside(a, b, poly))
-        lines = _clip_lines(lines, seg)
+        clip(seg)
         if v[f"draw_{pre}"]:
             extras.append(poly)
 
@@ -472,6 +498,8 @@ def apply_framework(lines, pw: float, ph: float, v: dict, seed: int = 0):
         extras = _centred(extras, pw, ph, lambda L: _scale(L, s, s, s))
 
     to_xy = lambda L: [[(x, y) for x, y, z in ln] for ln in L]
+    if track:
+        return to_xy(lines), to_xy(extras), tags
     return to_xy(lines), to_xy(extras)
 
 

@@ -3,7 +3,24 @@
   import { api } from "../../lib/api";
   import type { Pen } from "../../lib/types";
 
-  const save = () => api.savePens();
+  async function save() {
+    await api.savePens();
+    recalcGenerator();
+  }
+
+  // Editing the pens re-maps the generator's pen cycle: recompute the selected
+  // generate layer in place (like auto-redraw). Skipped mid generator-switch so an
+  // unapplied generator change is never applied, and while a job is in flight.
+  function recalcGenerator() {
+    const sel = studio.selectedLayer;
+    if (
+      sel?.kind === "generate" &&
+      sel.source?.generator_id === studio.generatorId &&
+      !studio.processing
+    ) {
+      void api.generate();
+    }
+  }
 
   function addPen() {
     studio.drawingSet?.pens.push({
@@ -25,10 +42,14 @@
     const total = studio.stats?.total || 0;
     return layer && total ? Math.round((layer.count / total) * 100) : 0;
   }
-  function loadLib(e: Event) {
-    const name = (e.target as HTMLSelectElement).value;
-    if (name) api.loadLibrary(name);
-    (e.target as HTMLSelectElement).value = "";
+  async function loadLib(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    const name = select.value;
+    select.value = "";
+    if (name) {
+      await api.loadLibrary(name);
+      recalcGenerator();
+    }
   }
 </script>
 

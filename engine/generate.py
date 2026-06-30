@@ -46,12 +46,16 @@ def make_circle(segments: int, radius: float) -> Line:
             for i in range(segments + 1)]
 
 
-def _clip_lines_to_rect(lines: list[Line], rect: tuple[float, float, float, float]) -> list[Line]:
+def _clip_lines_to_rect(lines: list[Line], rect: tuple[float, float, float, float],
+                        tags=None):
     out: list[Line] = []
-    for line in lines:
+    out_tags: list | None = [] if tags is not None else None
+    for i, line in enumerate(lines):
         for sub in clip_polyline(line, rect):
             out.append(sub)
-    return out
+            if out_tags is not None:
+                out_tags.append(tags[i])
+    return (out, out_tags) if tags is not None else out
 
 
 def _segment_outside_circle(p0, p1, cx, cy, r):
@@ -84,23 +88,35 @@ def _segment_outside_circle(p0, p1, cx, cy, r):
     return out
 
 
-def cull_inside_polygon(lines: list[Line], poly: Line) -> list[Line]:
-    """Remove the parts of each line that fall inside the convex polygon."""
+def cull_inside_polygon(lines: list[Line], poly: Line, tags=None):
+    """Remove the parts of each line that fall inside the convex polygon.
+
+    When ``tags`` (a per-line list) is given, every kept sub-line inherits its
+    source line's tag and ``(out, out_tags)`` is returned.
+    """
     out: list[Line] = []
-    for line in lines:
+    out_tags: list | None = [] if tags is not None else None
+
+    def keep(sub, tag):
+        out.append(sub)
+        if out_tags is not None:
+            out_tags.append(tag)
+
+    for i, line in enumerate(lines):
+        tag = tags[i] if tags is not None else None
         for p0, p1 in zip(line, line[1:]):
             iv = convex_interval(p0, p1, poly)
             if iv is None:               # segment entirely outside -> keep it
-                out.append([p0, p1])
+                keep([p0, p1], tag)
                 continue
             u0, u1 = iv
             x0, y0 = p0
             dx, dy = p1[0] - x0, p1[1] - y0
             if u0 > 0:
-                out.append([(x0, y0), (x0 + dx * u0, y0 + dy * u0)])
+                keep([(x0, y0), (x0 + dx * u0, y0 + dy * u0)], tag)
             if u1 < 1:
-                out.append([(x0 + dx * u1, y0 + dy * u1), (p1[0], p1[1])])
-    return out
+                keep([(x0 + dx * u1, y0 + dy * u1), (p1[0], p1[1])], tag)
+    return (out, out_tags) if tags is not None else out
 
 
 # ── Spokes & Circles ────────────────────────────────────────────────────────────
@@ -130,15 +146,33 @@ def spokes_and_circles(p: dict, seed: int = 0):
             pw - float(p["side_margin"]), ph - float(p["top_bottom_margin"]))
     ray_lines = _clip_lines_to_rect(ray_lines, rect)
 
+    # Pen-bucket cycling. Each line is tagged with a bucket index (mapped to a real
+    # pen by the worker via `bucket % len(active pens)`); None means first/active
+    # pen. Buckets count in `pen_order` from `pen_offset`. Spokes and circles use
+    # independent counters (both start at the offset).
+    cycle = bool(p.get("pen_cycle"))
+    step = -1 if p.get("pen_order") == "reverse" else 1
+    offset = int(p.get("pen_offset", 0))
+    circles_mode = p.get("pen_circles", "per_cluster")
+    pen_spokes = bool(p.get("pen_spokes", True))
+    rays_bucket = int(p.get("pen_rays", 0))      # absolute pen for the rays
+    border_bucket = int(p.get("pen_border", 0))  # absolute pen for drawn outlines
+
+    def bucket(i: int) -> int:
+        return offset + step * i
+
     spoke_lines: list[Line] = []
+    spoke_tags: list = []
     if p["draw_spokes"]:
         for s in range(spokes):
             sp_ang = angle * s + 90 + float(p["spoke_rotation"])
             spoke = [(0.0, 0.0), (0.0, -spoke_len)]
             spoke = translate(rotate(spoke, sp_ang), cx_pg, cy_pg)
             spoke_lines.append(spoke)
+            spoke_tags.append(bucket(s) if (cycle and pen_spokes) else None)
 
-    pattern: list[Line] = []
+    circle_lines: list[Line] = []
+    circle_tags: list = []
     for s in range(spokes):
         sp_ang = angle * s + 90 + float(p["spoke_rotation"])
 
@@ -149,7 +183,13 @@ def spokes_and_circles(p: dict, seed: int = 0):
                           + (circles - c) * float(p["circle_inner_rotation"]) + amount + 90)
             circ = translate(circ, 0, -spoke_len)
             circ = translate(rotate(circ, sp_ang), cx_pg, cy_pg)
-            pattern.append(circ)
+            circle_lines.append(circ)
+            if cycle and circles_mode == "per_cluster":
+                circle_tags.append(bucket(s))
+            elif cycle and circles_mode == "per_ring":
+                circle_tags.append(bucket(c - 1))
+            else:
+                circle_tags.append(None)
 
         # cropping shape — a polygon with `circle_segments` sides (matches the
         # rendered circles), so a low segment count crops as a triangle/square.
@@ -158,16 +198,26 @@ def spokes_and_circles(p: dict, seed: int = 0):
         crop = translate(crop, 0, -spoke_len)
         crop = translate(rotate(crop, sp_ang), cx_pg, cy_pg)
         if p["draw_crop_radius"]:
-            pattern.append(crop)
+            circle_lines.append(crop)
+            circle_tags.append(border_bucket)
         ray_lines = cull_inside_polygon(ray_lines, crop)
-        spoke_lines = cull_inside_polygon(spoke_lines, crop)
+        spoke_lines, spoke_tags = cull_inside_polygon(spoke_lines, crop, spoke_tags)
 
-    pattern = spoke_lines + pattern
-    pattern.extend(ray_lines)
+    # spokes first, then circles, then rays (matches the original ordering).
+    all_lines = spoke_lines + circle_lines + ray_lines
+    all_tags = spoke_tags + circle_tags + [rays_bucket] * len(ray_lines)
 
     # Output in cm; the framework pipeline + worker handle margins, cropping,
     # transforms and the final cm -> mm conversion.
-    lines = [line for line in pattern if len(line) >= 2]
+    lines: list[Line] = []
+    line_pens: list = []
+    for line, tag in zip(all_lines, all_tags):
+        if len(line) >= 2:
+            lines.append(line)
+            line_pens.append(tag)
+    # Stay a 3-tuple unless pen cycling is on, so existing callers are unaffected.
+    if cycle:
+        return lines, pw, ph, line_pens
     return lines, pw, ph
 
 
@@ -192,6 +242,22 @@ _SPOKES_PARAMS = [
     Param("rays", "int", 128, group="Spokes & Circles", min=0, max=720),
     Param("ray_rotation", "angle", 0.0, group="Spokes & Circles", min=0, max=180),
     Param("seed", "int", 0, group="Spokes & Circles"),
+
+    Param("pen_cycle", "bool", False, group="Pens",
+          help="Distribute the drawing-set's pens across elements (off = single pen)"),
+    Param("pen_spokes", "bool", True, group="Pens",
+          help="Advance one pen per spoke"),
+    Param("pen_circles", "enum", "per_cluster", group="Pens",
+          choices=["off", "per_cluster", "per_ring"],
+          help="off = first pen; per_cluster = one pen per spoke's circles; "
+               "per_ring = a pen per ring (lined up across spokes)"),
+    Param("pen_order", "enum", "forward", group="Pens", choices=["forward", "reverse"]),
+    Param("pen_offset", "int", 0, group="Pens", min=0, max=32,
+          help="Start the cycle at this pen"),
+    Param("pen_rays", "int", 0, group="Pens", min=0, max=32,
+          help="Pen number for the rays (0 = first pen; wraps past the list)"),
+    Param("pen_border", "int", 0, group="Pens", min=0, max=32,
+          help="Pen number for borders / margins / crop outlines (0 = first pen)"),
 ]
 
 PAGE_PARAMS = [
