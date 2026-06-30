@@ -219,6 +219,11 @@ export async function gotoStep(page: Page, label: string) {
   await page.getByRole("tab", { name: label }).click();
 }
 
+/** Reveal a generator param group by clicking its tab in the Generate panel. */
+export async function gotoGenGroup(page: Page, name: string) {
+  await page.locator(".tabs button", { hasText: name }).click();
+}
+
 // ── Perf recorder fixture ────────────────────────────────────────────────────
 
 export type PerfRecord = { story: string; pfm?: string; duration_ms: number; shapes?: number };

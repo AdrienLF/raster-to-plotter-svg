@@ -5,6 +5,7 @@ import {
   freshProject,
   getComposition,
   gotoApp,
+  gotoGenGroup,
   waitForComposition,
   waitForGeneratedLayer,
 } from "./fixtures";
@@ -52,6 +53,7 @@ test("E3: Auto redraws an existing layer and Auto off requires explicit generati
 
   const autoCheck = page.locator("label.auto input[type='checkbox']");
   await expect(autoCheck).toBeChecked();
+  await gotoGenGroup(page, "3D Rotation");
   const rot1xInput = page.locator('.ctrl:has(label[for="rot1_x"]) input.numbox');
 
   // Auto redraw updates the already-selected generate layer after the debounce.
@@ -79,8 +81,13 @@ test("E3: Auto redraws an existing layer and Auto off requires explicit generati
   expect(unchanged.svg, "Auto off should preserve the current SVG").toBe(autoSvg);
   expect(unchanged.source.params.rot1_x, "Auto off should preserve persisted params").toBe(45);
 
-  // Explicit generation applies the pending parameter to that same layer.
+  // Explicit generation applies the pending parameter to that same layer — but the
+  // layer already has art, so confirm the overwrite warning.
   await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Layer already generated" })
+    .getByRole("button", { name: "Overwrite this layer" })
+    .click();
   const explicitlyRedrawn = await waitForComposition(
     request,
     baseURL!,
@@ -109,6 +116,7 @@ test("E4: rot1_x knob changes output; reverting produces the same SVG (determini
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
 
   // Change rot1_x (3D Rotation group) — auto-redraw fires after 350ms debounce.
+  await gotoGenGroup(page, "3D Rotation");
   const rot1xInput = page.locator('.ctrl:has(label[for="rot1_x"]) input.numbox');
   await rot1xInput.fill("45");
   await rot1xInput.press("Tab");
@@ -160,21 +168,21 @@ test("E6: spokes_and_circles generate timing", async ({ page, request, baseURL, 
   console.log(`[perf] E6: spokes_and_circles ${duration_ms}ms`);
 });
 
-// E7 [U]: Generate panel — params are organized into named groups for scannability.
-test("E7: generator params are organized into named groups", async ({ page, request, baseURL }) => {
+// E7 [U]: Generate panel — params are organized into named group tabs for scannability.
+test("E7: generator params are organized into named group tabs", async ({ page, request, baseURL }) => {
   await freshProject(request, baseURL!, "E2E E7");
   await gotoApp(page);
 
   await page.getByRole("button", { name: "＋ Generator" }).click();
   await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
 
-  // Params render inside .group containers with .group-title headings.
-  const groupCount = await page.locator(".group-title").count();
-  expect(groupCount, "params should be organized into groups").toBeGreaterThan(0);
+  // Groups are surfaced as a tab strip; only the active group's params render.
+  const groupCount = await page.locator(".tabs button").count();
+  expect(groupCount, "params should be organized into group tabs").toBeGreaterThan(0);
 
-  console.log(`[ux] E7: ${groupCount} param groups in GeneratePanel`);
+  console.log(`[ux] E7: ${groupCount} param group tabs in GeneratePanel`);
   // The framework alone has ~10+ groups (Decimate, Transform, 3D Rotation, Distort 1/2, …).
-  expect(groupCount, "should have multiple groups for scannability").toBeGreaterThanOrEqual(3);
+  expect(groupCount, "should have multiple group tabs for scannability").toBeGreaterThanOrEqual(3);
 });
 
 // E8: Shape Field uses its dedicated dynamic editor and persists the shape stack.
@@ -254,6 +262,7 @@ test("E5: target selector — new layer vs existing layer", async ({ page, reque
   const originalLayer = selected.layers.find((layer) => layer.id === firstLayerId)!;
   const originalSvg = originalLayer.svg;
   const stableLayerIds = withNewLayer.layers.map((layer) => layer.id).sort();
+  await gotoGenGroup(page, "3D Rotation");
   const rot1xInput = page.locator('.ctrl:has(label[for="rot1_x"]) input.numbox');
   await rot1xInput.fill("60");
   await rot1xInput.press("Tab");
@@ -264,8 +273,13 @@ test("E5: target selector — new layer vs existing layer", async ({ page, reque
   expect(beforeExplicit.svg, "Auto off should not regenerate the selected target").toBe(originalSvg);
   expect(beforeExplicit.source.params.rot1_x).not.toBe(60);
 
-  // Generate replaces the original layer in place while preserving both layer IDs.
+  // Generate replaces the original layer in place while preserving both layer IDs —
+  // the selected layer already has art, so confirm the overwrite warning.
   await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Layer already generated" })
+    .getByRole("button", { name: "Overwrite this layer" })
+    .click();
   const updated = await waitForComposition(
     request,
     baseURL!,
@@ -284,5 +298,49 @@ test("E5: target selector — new layer vs existing layer", async ({ page, reque
   );
   expect(updated.layers).toHaveLength(2);
   expect(updated.layers.map((layer) => layer.id).sort()).toEqual(stableLayerIds);
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+});
+
+// E9: switching generators never auto-redraws; ✦ Generate warns before overwriting
+// a layer that already has a generation and can spawn a fresh layer instead.
+test("E9: generator switch waits for Generate; overwrite warning offers a new layer", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E E9");
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "＋ Generator" }).click();
+  await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  const initial = await waitForGeneratedLayer(request, baseURL!);
+  const layerId = initial.layers[0].id;
+  const originalGen = initial.layers[0].source.generator_id;
+  expect(originalGen).toBe("spokes_and_circles");
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+
+  // Auto is on by default — switching the generator must NOT regenerate.
+  await expect(page.locator("label.auto input[type='checkbox']")).toBeChecked();
+  await page.locator(".gen-select").selectOption("shape_field");
+  await page.waitForTimeout(800); // well past the 350ms auto-redraw debounce
+  const afterSwitch = await getComposition(request, baseURL!);
+  expect(
+    afterSwitch.layers.find((layer) => layer.id === layerId)?.source.generator_id,
+    "switching generators alone must not regenerate the layer",
+  ).toBe(originalGen);
+
+  // Pressing ✦ Generate on a layer that already has art opens the warning dialog.
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Layer already generated" });
+  await expect(dialog).toBeVisible();
+
+  // "Create new layer" generates into a fresh layer; the original keeps its generator.
+  await dialog.getByRole("button", { name: "Create new layer" }).click();
+  const withNew = await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => composition.layers.length === 2,
+    "wait for a new layer from the overwrite dialog",
+    60_000,
+  );
+  expect(withNew.layers.find((layer) => layer.id === layerId)?.source.generator_id).toBe(originalGen);
+  expect(withNew.layers.find((layer) => layer.id !== layerId)?.source.generator_id).toBe("shape_field");
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
 });

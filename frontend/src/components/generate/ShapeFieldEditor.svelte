@@ -1,18 +1,7 @@
 <script lang="ts">
   import { studio } from "../../lib/state.svelte";
-  import type { Param, ShapeLayerT } from "../../lib/types";
-  import ParamControl from "../ParamControl.svelte";
+  import type { ShapeLayerT } from "../../lib/types";
 
-  const groups = $derived.by(() => {
-    const grouped = new Map<string, Param[]>();
-    for (const param of studio.genSchema) {
-      if (!grouped.has(param.group)) grouped.set(param.group, []);
-      grouped.get(param.group)!.push(param);
-    }
-    return [...grouped.entries()];
-  });
-  const fieldGroup = $derived(groups.find(([name]) => name === "Field"));
-  const otherGroups = $derived(groups.filter(([name]) => name !== "Field"));
   const layers = $derived((studio.genParams.shape_layers ?? []) as ShapeLayerT[]);
 
   function setLayers(layers: ShapeLayerT[]) {
@@ -64,15 +53,6 @@
 </script>
 
 <div class="shape-field-editor">
-  {#if fieldGroup}
-    <section class="group">
-      <div class="group-title">Field</div>
-      {#each fieldGroup[1] as param (param.name)}
-        <ParamControl {param} bind:value={studio.genParams[param.name]} />
-      {/each}
-    </section>
-  {/if}
-
   <section class="group stack">
     <div class="stack-heading">
       <div>
@@ -361,15 +341,6 @@
       </article>
     {/each}
   </section>
-
-  {#each otherGroups as [group, params] (group)}
-    <section class="group">
-      <div class="group-title">{group}</div>
-      {#each params as param (param.name)}
-        <ParamControl {param} bind:value={studio.genParams[param.name]} />
-      {/each}
-    </section>
-  {/each}
 </div>
 
 <style>

@@ -8,6 +8,7 @@ import {
   freshProject,
   getComposition,
   gotoApp,
+  gotoGenGroup,
   importImage,
   runPathFinding,
   gotoStep,
@@ -88,6 +89,7 @@ test("M2: generator-only artwork — generate, version, export", async ({ page, 
   const savedSvg = savedComposition.layers[0].svg;
 
   // Mutate the generated layer so loading the snapshot has an observable boundary.
+  await gotoGenGroup(page, "3D Rotation");
   const rot1xInput = page.locator('.ctrl:has(label[for="rot1_x"]) input.numbox');
   await rot1xInput.fill("45");
   await rot1xInput.press("Tab");

@@ -19,6 +19,9 @@ A running list of what this software does. One line each. Updated on every commi
 - **GPU acceleration** — Torch (MPS/CUDA) for nearest-site / weighted-centroid stages; numpy/scipy CPU fallback. Active backend shown in status bar.
 - **Generators** — Procedural pattern generators distinct from image-driven PFMs (`/api/generate`).
 - **Shape Field generator** — Build tiled patterns from a dynamic stack of circles, polygons, stars, diamonds, crosses, spirals, and waves across square, brick, hex, triangular, or jittered layouts; combine them as nested, alternating, connected, or overlapping motifs with modulation and seeded randomness.
+- **Tabbed generator params** — The Generate panel groups a generator's params into tabs (one group shown at a time) instead of one long scroll; selecting a layer loads its current generation settings.
+- **Deliberate generator switching** — Changing the generator never auto-redraws (even with Auto on); only same-generator parameter tweaks live-update. Applying a new generator waits for ✦ Generate.
+- **Overwrite guard** — Pressing ✦ Generate on a layer that already holds a generation prompts a warning, offering to create a new layer instead of overwriting it.
 
 ## Composition (layers)
 - **Layer stack** — Multiple stacked layers, each bound to a region or the whole image; reorder, duplicate, delete, toggle visibility.

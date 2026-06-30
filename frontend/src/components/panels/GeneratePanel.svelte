@@ -15,6 +15,22 @@
     return [...m.entries()];
   });
 
+  // Show one param group at a time via a tab strip. Derive the active group so it
+  // stays valid when the generator (and thus the group list) changes.
+  // Generators with a custom editor (e.g. shape_field) contribute an extra tab
+  // rendered by their dedicated component instead of plain ParamControls.
+  const SHAPES_TAB = "Shapes";
+  let activeGroup = $state<string | null>(null);
+  const groupNames = $derived.by(() => {
+    const names = groups.map(([g]) => g);
+    if (studio.generatorEditor === "shape_field") names.unshift(SHAPES_TAB);
+    return names;
+  });
+  const current = $derived(
+    activeGroup && groupNames.includes(activeGroup) ? activeGroup : groupNames[0],
+  );
+  const activeParams = $derived(groups.find(([g]) => g === current)?.[1] ?? []);
+
   async function onSelect(e: Event) {
     await api.selectGenerator((e.target as HTMLSelectElement).value);
   }
@@ -31,10 +47,10 @@
     );
   }
 
-  // Auto-redraw: regenerate (debounced) when a parameter or the generator
-  // changes — but only for a layer that's already a generate layer. Opening the
-  // panel does nothing; the explicit ✦ Generate button creates the first
-  // generate layer, after which tweaks redraw it live.
+  // Auto-redraw: live-redraw (debounced) when a parameter changes — but only for
+  // a layer that's already a generate layer running the *same* generator.
+  // Switching generators never auto-redraws; applying a new generator (or first
+  // generating a layer) requires the explicit ✦ Generate button.
   let timer: ReturnType<typeof setTimeout>;
   let mounted = false;
   $effect(() => {
@@ -48,14 +64,37 @@
     const selectedLayer = untrack(() => studio.selectedLayer);
     if (selectedLayer?.kind !== "generate") return;
     const selectedSource = selectedLayer.source ?? {};
-    if (
-      selectedSource.generator_id === generatorId &&
-      paramsKey(selectedSource.params ?? {}) === paramsJson
-    ) return;
+    // A different generator is a deliberate change — wait for ✦ Generate.
+    if (selectedSource.generator_id !== generatorId) return;
+    if (paramsKey(selectedSource.params ?? {}) === paramsJson) return;
     timer = setTimeout(() => {
       if (!studio.processing) void api.generate();
     }, 350);
   });
+
+  // ✦ Generate: warn before overwriting a layer that already holds a generation,
+  // offering to spawn a fresh layer instead. The explicit target is
+  // selected_layer_id (null = "＋ New layer", which never overwrites) — not the
+  // selectedLayer fallback, which points at the top layer when nothing is chosen.
+  const genTarget = $derived(
+    studio.composition.selected_layer_id
+      ? studio.composition.layers.find((l) => l.id === studio.composition.selected_layer_id) ?? null
+      : null,
+  );
+  let confirmOverwrite = $state(false);
+  function onGenerate() {
+    if (genTarget?.kind === "generate") confirmOverwrite = true;
+    else void api.generate();
+  }
+  async function generateNewLayer() {
+    confirmOverwrite = false;
+    await api.newLayer();
+    await api.generate();
+  }
+  function overwriteLayer() {
+    confirmOverwrite = false;
+    void api.generate();
+  }
 </script>
 
 <div class="col">
@@ -76,7 +115,7 @@
   </select>
 
   <div class="row">
-    <button class="primary gen" disabled={studio.processing} onclick={() => api.generate()}>
+    <button class="primary gen" disabled={studio.processing} onclick={onGenerate}>
       {studio.processing ? "Generating…" : "✦ Generate"}
     </button>
     <label class="auto" title="Redraw automatically when a parameter changes">
@@ -85,23 +124,70 @@
     </label>
   </div>
 
-  {#if studio.generatorEditor === "shape_field"}
+  <div class="tabs">
+    {#each groupNames as group (group)}
+      <button class:active={group === current} onclick={() => (activeGroup = group)}>{group}</button>
+    {/each}
+  </div>
+  {#if current === SHAPES_TAB}
     <ShapeFieldEditor />
   {:else}
-    {#each groups as [group, params] (group)}
-      <div class="group">
-        <div class="group-title">{group}</div>
-        {#each params as p (p.name)}
-          <ParamControl param={p} bind:value={studio.genParams[p.name]} />
-        {/each}
-      </div>
-    {/each}
+    <div class="group">
+      {#each activeParams as p (p.name)}
+        <ParamControl param={p} bind:value={studio.genParams[p.name]} />
+      {/each}
+    </div>
   {/if}
 </div>
+
+{#if confirmOverwrite}
+  <div class="modal-backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Layer already generated">
+      <p>
+        “{genTarget?.name}” already has a generation. Generating will
+        overwrite it.
+      </p>
+      <div class="modal-actions">
+        <button class="primary" onclick={generateNewLayer}>Create new layer</button>
+        <button onclick={overwriteLayer}>Overwrite this layer</button>
+        <button onclick={() => (confirmOverwrite = false)}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .gen-select {
     width: 100%;
+  }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+  }
+  .modal {
+    max-width: 320px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  .modal p {
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .modal-actions button {
+    padding: 6px;
   }
   .target {
     display: flex;
@@ -127,16 +213,26 @@
   .auto input {
     width: auto;
   }
-  .group {
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
     border-top: 1px solid var(--line);
     padding-top: 8px;
     margin-top: 4px;
   }
-  .group-title {
+  .tabs button {
+    padding: 3px 6px;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .tabs button.active {
+    border-color: var(--accent);
+    background: #263346;
     color: var(--accent);
-    margin-bottom: 6px;
+  }
+  .group {
+    padding-top: 4px;
   }
 </style>

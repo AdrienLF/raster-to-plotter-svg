@@ -61,13 +61,6 @@
     await api.deleteLayer(id);
   }
 
-  async function openLayerStyle(id: string) {
-    await api.selectLayer(id);
-    studio.layerStyleOpen = true;
-    const layer = studio.composition.layers.find((item) => item.id === id);
-    if (layer) void api.loadLayerStyleSchema(layer.pathfinding_style?.pfm_id || studio.pfmId);
-  }
-
   async function toggleOcclusion(id: string, occlude_below: boolean) {
     await api.patchLayer(id, { occlude_below });
   }
@@ -147,7 +140,6 @@
             onchange={(e) => rename(layer.id, (e.target as HTMLInputElement).value)}
           />
           <div class="actions">
-            <button title="Path finding" aria-label={`Open ${layer.name} path finding`} onclick={() => openLayerStyle(layer.id)}>Edit</button>
             <button title="Move up" aria-label={`Move ${layer.name} up`} onclick={() => api.moveLayer(layer.id, 1)}>↑</button>
             <button title="Move down" aria-label={`Move ${layer.name} down`} onclick={() => api.moveLayer(layer.id, -1)}>↓</button>
             <button title="Duplicate" aria-label={`Duplicate ${layer.name}`} onclick={() => api.duplicateLayer(layer.id)}>⧉</button>
@@ -336,7 +328,7 @@
   .actions {
     grid-column: 2;
     display: grid;
-    grid-template-columns: 1.5fr repeat(4, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 4px;
   }
   .actions button {

@@ -196,7 +196,8 @@ class FrontendContractsTest(unittest.TestCase):
         )
         self.assertIn("function paramsKey", generator_panel)
         self.assertIn("const paramsJson = paramsKey(studio.genParams)", generator_panel)
-        self.assertIn("selectedSource.generator_id === generatorId", generator_panel)
+        # Switching generators never auto-redraws; only same-generator param tweaks do.
+        self.assertIn("selectedSource.generator_id !== generatorId", generator_panel)
         self.assertIn("paramsKey(selectedSource.params ?? {}) === paramsJson", generator_panel)
 
     def test_export_menu_uses_visible_layers_not_stats(self):
@@ -287,7 +288,9 @@ class FrontendContractsTest(unittest.TestCase):
     def test_composition_panel_opens_layer_style_and_toggles_occlusion(self):
         panel = (ROOT / "frontend/src/components/panels/CompositionPanel.svelte").read_text(encoding="utf-8")
 
-        self.assertIn("openLayerStyle", panel)
+        # Path-finding is opened from the ＋ Path finding button (addPfLayer), not a
+        # per-layer Edit button.
+        self.assertIn("addPfLayer", panel)
         self.assertIn("studio.layerStyleOpen = true", panel)
         self.assertIn("occlude_below", panel)
 
