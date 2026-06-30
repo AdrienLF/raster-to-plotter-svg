@@ -122,6 +122,35 @@
     {/if}
   </div>
 
+  <div class="menu" class:open={open === "view"}>
+    <button
+      class="summary"
+      onclick={(e) => {
+        e.stopPropagation();
+        toggle("view");
+      }}
+      onmouseenter={() => open && (open = "view")}
+    >
+      View
+    </button>
+    {#if open === "view"}
+      <div class="items">
+        <button
+          aria-pressed={studio.showGuides}
+          onclick={() => run(() => (studio.showGuides = !studio.showGuides))}
+        >
+          <span class="check">{studio.showGuides ? "✓" : ""}</span>Show guides
+        </button>
+        <button
+          aria-pressed={studio.showLayerBounds}
+          onclick={() => run(() => (studio.showLayerBounds = !studio.showLayerBounds))}
+        >
+          <span class="check">{studio.showLayerBounds ? "✓" : ""}</span>Show bounds
+        </button>
+      </div>
+    {/if}
+  </div>
+
   <div class="spacer"></div>
   <span class="doc muted">{studio.currentProject?.name ?? "—"}</span>
   <span class="doc muted dim">· {studio.imageName || "no image"}</span>
@@ -186,6 +215,10 @@
   }
   .items .danger-text {
     color: var(--danger);
+  }
+  .check {
+    display: inline-block;
+    width: 14px;
   }
   .sep {
     height: 1px;

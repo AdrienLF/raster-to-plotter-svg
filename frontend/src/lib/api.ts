@@ -192,7 +192,6 @@ export const api = {
     studio.plotting = false;
     studio.progress = 0;
     studio.status = "Idle";
-    studio.step = "composition";
     studio.regionDraftMask = null;
     studio.regionDraftBbox = null;
     studio.regionPositivePoints = [];

@@ -707,16 +707,18 @@
           ></div>
         {/if}
       {:else if studio.composition.layers.length}
-        <div
-          class="guide a4"
-          style:width={`${a4Guide.w * PX_PER_MM}px`}
-          style:height={`${a4Guide.h * PX_PER_MM}px`}
-        >
-          <div class="mid-v"></div>
-          <div class="mid-h"></div>
-        </div>
-        <div class="sheet-mid-v"></div>
-        <div class="sheet-mid-h"></div>
+        {#if studio.showGuides}
+          <div
+            class="guide a4"
+            style:width={`${a4Guide.w * PX_PER_MM}px`}
+            style:height={`${a4Guide.h * PX_PER_MM}px`}
+          >
+            <div class="mid-v"></div>
+            <div class="mid-h"></div>
+          </div>
+          <div class="sheet-mid-v"></div>
+          <div class="sheet-mid-h"></div>
+        {/if}
         {#if snapGuideX !== null}
           <div class="snap-v" style:left={`${snapGuideX * PX_PER_MM}px`}></div>
         {/if}
@@ -731,7 +733,7 @@
           <div
             class="art"
             class:selected={layer.id === studio.composition.selected_layer_id}
-            class:show-bounds={studio.step === "composition" || studio.showLayerBounds}
+            class:show-bounds={studio.showLayerBounds}
             style:left={`${eb.x * PX_PER_MM}px`}
             style:top={`${eb.y * PX_PER_MM}px`}
             style:width={`${eb.width * PX_PER_MM}px`}

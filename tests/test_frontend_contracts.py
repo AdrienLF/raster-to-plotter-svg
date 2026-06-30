@@ -96,7 +96,6 @@ class FrontendContractsTest(unittest.TestCase):
             "studio.plotting = false",
             "studio.progress = 0",
             'studio.status = "Idle"',
-            'studio.step = "composition"',
             "studio.regionDraftMask = null",
             "studio.regionDraftBbox = null",
             "studio.regionPositivePoints = []",
@@ -206,15 +205,37 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("disabled={!studio.hasVisibleLayers}", menu)
         self.assertNotIn("disabled={!studio.stats}", menu)
 
-    def test_composition_layer_bounds_toggle_is_visible_in_viewport(self):
+    def test_view_menu_guides_and_bounds_toggles(self):
         state = (ROOT / "frontend/src/lib/state.svelte.ts").read_text(encoding="utf-8")
+        menu = (ROOT / "frontend/src/components/MenuBar.svelte").read_text(encoding="utf-8")
         panel = (ROOT / "frontend/src/components/panels/CompositionPanel.svelte").read_text(encoding="utf-8")
         viewport = (ROOT / "frontend/src/components/Viewport.svelte").read_text(encoding="utf-8")
 
-        self.assertIn("showLayerBounds", state)
-        self.assertIn("bind:checked={studio.showLayerBounds}", panel)
-        self.assertIn('class:show-bounds={studio.step === "composition" || studio.showLayerBounds}', viewport)
+        # showGuides exists alongside showLayerBounds and defaults to on.
+        self.assertIn("showLayerBounds = $state(true)", state)
+        self.assertIn("showGuides = $state(true)", state)
+
+        # The View menu owns both toggles, bound to the matching state.
+        self.assertIn("toggle(\"view\")", menu)
+        self.assertIn("studio.showGuides = !studio.showGuides", menu)
+        self.assertIn("studio.showLayerBounds = !studio.showLayerBounds", menu)
+        self.assertIn("aria-pressed={studio.showGuides}", menu)
+        self.assertIn("aria-pressed={studio.showLayerBounds}", menu)
+
+        # CompositionPanel no longer owns the Show bounds control.
+        self.assertNotIn("bind:checked={studio.showLayerBounds}", panel)
+        self.assertNotIn("Show bounds", panel)
+
+        # Viewport gates the persistent guide block on showGuides and obeys
+        # showLayerBounds in every step (no Composition-forced bounds).
+        self.assertIn("{#if studio.showGuides}", viewport)
+        self.assertIn("class:show-bounds={studio.showLayerBounds}", viewport)
+        self.assertNotIn('studio.step === "composition" || studio.showLayerBounds', viewport)
         self.assertIn(".art.show-bounds", viewport)
+        # Snap lines stay outside the guide gate so dragging still shows them.
+        guide_block = viewport[viewport.index("{#if studio.showGuides}"):]
+        guide_end = guide_block.index("{/if}")
+        self.assertNotIn("snap-v", guide_block[:guide_end])
 
     def test_composition_layer_movement_is_not_clamped_to_page(self):
         viewport = (ROOT / "frontend/src/components/Viewport.svelte").read_text(encoding="utf-8")

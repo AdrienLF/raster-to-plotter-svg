@@ -99,14 +99,8 @@
 
 <div class="composition col">
   <div class="topbar">
-    <div class="adds">
-      <button class="add" onclick={addPfLayer}>＋ Path finding</button>
-      <button class="add" onclick={addLayer}>＋ Generator</button>
-    </div>
-    <label class="bounds-toggle">
-      <input type="checkbox" bind:checked={studio.showLayerBounds} />
-      <span>Show bounds</span>
-    </label>
+    <button class="add" onclick={addPfLayer}>＋ Path finding</button>
+    <button class="add" onclick={addLayer}>＋ Generator</button>
   </div>
 
   {#if studio.composition.layers.length}
@@ -248,11 +242,6 @@
   .topbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .adds {
-    display: flex;
     gap: 6px;
   }
   .add {
@@ -269,15 +258,6 @@
   }
   .algo i.dirty {
     color: var(--accent);
-  }
-  .bounds-toggle {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12px;
-  }
-  .bounds-toggle input {
-    width: auto;
   }
   .layers {
     display: flex;

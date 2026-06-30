@@ -56,6 +56,7 @@ class Studio {
     layers: [],
   });
   showLayerBounds = $state(true);
+  showGuides = $state(true);
   layerStyleOpen = $state(false);
   layerStyleSchema = $state<Param[]>([]);
   // Active mask-drawing tool (composition step). null = not drawing.

@@ -40,6 +40,7 @@ A running list of what this software does. One line each. Updated on every commi
 ## Viewport
 - **Pan / zoom / fit** — Wheel zoom, drag pan, one-shot auto-fit, Fit button.
 - **Snapping guides** — Alignment guides while moving layers.
+- **View menu** — Top-bar View menu with Show guides (A4 boundary + A4/sheet center lines) and Show bounds (layer bounds) toggles; both default on, session-level, independent of the workflow step. Snap lines stay visible regardless.
 
 ## Versions
 - **Snapshot version control** — Save, load, rename, reorder, delete drawing snapshots with thumbnails.
