@@ -32,6 +32,39 @@ class SpokesPenBuckets(unittest.TestCase):
         _, _, _, pens = spokes_and_circles(_params(pen_cycle=True, pen_circles="per_ring"))
         self.assertEqual(pens, [0, 1, 0, 1, 0, 1])
 
+    def test_per_ring_stagger_advances_each_cluster(self):
+        _, _, _, pens = spokes_and_circles(_params(
+            pen_cycle=True, pen_circles="per_ring", pen_circle_stagger=1,
+        ))
+        self.assertEqual(pens, [0, 1, 1, 2, 2, 3])
+
+    def test_per_ring_stagger_can_advance_multiple_pens(self):
+        _, _, _, pens = spokes_and_circles(_params(
+            pen_cycle=True, pen_circles="per_ring", pen_circle_stagger=2,
+        ))
+        self.assertEqual(pens, [0, 1, 2, 3, 4, 5])
+
+    def test_per_ring_stagger_respects_reverse_order_and_offset(self):
+        _, _, _, pens = spokes_and_circles(_params(
+            pen_cycle=True,
+            pen_circles="per_ring",
+            pen_circle_stagger=1,
+            pen_order="reverse",
+            pen_offset=5,
+        ))
+        self.assertEqual(pens, [5, 4, 4, 3, 3, 2])
+
+    def test_circle_stagger_schema_contract(self):
+        params = {
+            param.name: param
+            for param in get_generator("spokes_and_circles")["params"]
+        }
+        stagger = params["pen_circle_stagger"]
+        self.assertEqual(stagger.default, 0)
+        self.assertEqual(stagger.min, 0)
+        self.assertEqual(stagger.max, 32)
+        self.assertEqual(stagger.group, "Pens")
+
     def test_reverse_and_offset(self):
         _, _, _, pens = spokes_and_circles(
             _params(pen_cycle=True, pen_circles="per_cluster", pen_order="reverse", pen_offset=5)

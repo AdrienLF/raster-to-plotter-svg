@@ -154,6 +154,7 @@ def spokes_and_circles(p: dict, seed: int = 0):
     step = -1 if p.get("pen_order") == "reverse" else 1
     offset = int(p.get("pen_offset", 0))
     circles_mode = p.get("pen_circles", "per_cluster")
+    circle_stagger = max(0, int(p.get("pen_circle_stagger", 0)))
     pen_spokes = bool(p.get("pen_spokes", True))
     rays_bucket = int(p.get("pen_rays", 0))      # absolute pen for the rays
     border_bucket = int(p.get("pen_border", 0))  # absolute pen for drawn outlines
@@ -187,7 +188,7 @@ def spokes_and_circles(p: dict, seed: int = 0):
             if cycle and circles_mode == "per_cluster":
                 circle_tags.append(bucket(s))
             elif cycle and circles_mode == "per_ring":
-                circle_tags.append(bucket(c - 1))
+                circle_tags.append(bucket((c - 1) + s * circle_stagger))
             else:
                 circle_tags.append(None)
 
@@ -251,6 +252,8 @@ _SPOKES_PARAMS = [
           choices=["off", "per_cluster", "per_ring"],
           help="off = first pen; per_cluster = one pen per spoke's circles; "
                "per_ring = a pen per ring (lined up across spokes)"),
+    Param("pen_circle_stagger", "int", 0, group="Pens", min=0, max=32,
+          help="Shift each successive circle cluster by this many pens in per-ring mode"),
     Param("pen_order", "enum", "forward", group="Pens", choices=["forward", "reverse"]),
     Param("pen_offset", "int", 0, group="Pens", min=0, max=32,
           help="Start the cycle at this pen"),
