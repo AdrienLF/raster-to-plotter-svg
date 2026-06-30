@@ -35,7 +35,7 @@ A running list of what this software does. One line each. Updated on every commi
 
 ## Drawing area & pens
 - **Drawing Area** — Page size, units, orientation, padding, scaling mode, pen-width rescaling.
-- **Drawing Sets (pens)** — Multi-pen sets with colour/stroke width; items distributed across pens. Pen library presets.
+- **Drawing Sets (pens)** — Multi-pen sets with colour and per-pen size in mm (stroke width), edited in the Pens panel and reflected in the preview's stroke; items distributed across pens. Pen library presets.
 
 ## Viewport
 - **Pan / zoom / fit** — Wheel zoom, drag pan, one-shot auto-fit, Fit button.

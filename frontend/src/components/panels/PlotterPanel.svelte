@@ -2,6 +2,7 @@
   import { api } from "../../lib/api";
   import { PAPER_PRESETS } from "../../lib/placement";
   import { pushLog, studio } from "../../lib/state.svelte";
+  import NumStep from "../NumStep.svelte";
 
   const piBridge = "socket://100.92.241.24:4000";
   const macPty = "/Users/adrien/.idraw-tty";
@@ -215,19 +216,19 @@
           </div>
           <div class="f">
             <label for="plotter-pen-up">Pen up</label>
-            <input id="plotter-pen-up" type="number" min="0" step="0.1" bind:value={studio.settings.pen_pos_up} onchange={() => save()} />
+            <NumStep id="plotter-pen-up" min={0} step={0.1} bind:value={studio.settings.pen_pos_up} onchange={() => save()} />
           </div>
           <div class="f">
             <label for="plotter-pen-down">Pen down</label>
-            <input id="plotter-pen-down" type="number" min="0" step="0.1" bind:value={studio.settings.pen_pos_down} onchange={() => save()} />
+            <NumStep id="plotter-pen-down" min={0} step={0.1} bind:value={studio.settings.pen_pos_down} onchange={() => save()} />
           </div>
           <div class="f">
             <label for="plotter-paper-width">Paper width</label>
-            <input id="plotter-paper-width" type="number" min="50" step="1" bind:value={studio.settings.paper_width} onchange={() => save()} />
+            <NumStep id="plotter-paper-width" min={50} step={1} bind:value={studio.settings.paper_width} onchange={() => save()} />
           </div>
           <div class="f">
             <label for="plotter-paper-height">Paper height</label>
-            <input id="plotter-paper-height" type="number" min="50" step="1" bind:value={studio.settings.paper_height} onchange={() => save()} />
+            <NumStep id="plotter-paper-height" min={50} step={1} bind:value={studio.settings.paper_height} onchange={() => save()} />
           </div>
         </div>
       </div>
@@ -235,38 +236,38 @@
       <div class="grid2">
         <div class="f wide">
           <label for="plotter-speed-down">Drawing speed</label>
-          <input id="plotter-speed-down" type="number" min="50" step="50" bind:value={studio.settings.speed_pendown} onchange={() => save()} />
+          <NumStep id="plotter-speed-down" min={50} step={50} bind:value={studio.settings.speed_pendown} onchange={() => save()} />
         </div>
         <div class="f wide">
           <label for="plotter-speed-up">Travel speed</label>
-          <input id="plotter-speed-up" type="number" min="50" step="50" bind:value={studio.settings.speed_penup} onchange={() => save()} />
+          <NumStep id="plotter-speed-up" min={50} step={50} bind:value={studio.settings.speed_penup} onchange={() => save()} />
         </div>
         <div class="f">
           <label for="plotter-copies">Copies</label>
-          <input id="plotter-copies" type="number" min="1" step="1" bind:value={studio.settings.copies} onchange={() => save()} />
+          <NumStep id="plotter-copies" min={1} step={1} bind:value={studio.settings.copies} onchange={() => save()} />
         </div>
         <div class="f">
           <label for="plotter-page-delay">Copy delay</label>
-          <input id="plotter-page-delay" type="number" min="0" step="1" bind:value={studio.settings.page_delay} onchange={() => save()} />
+          <NumStep id="plotter-page-delay" min={0} step={1} bind:value={studio.settings.page_delay} onchange={() => save()} />
         </div>
       </div>
     {:else if studio.plotterTab === "timing"}
       <div class="grid2">
         <div class="f wide">
           <label for="plotter-raise-rate">Raise speed</label>
-          <input id="plotter-raise-rate" type="number" min="100" step="100" bind:value={studio.settings.pen_rate_raise} onchange={() => save()} />
+          <NumStep id="plotter-raise-rate" min={100} step={100} bind:value={studio.settings.pen_rate_raise} onchange={() => save()} />
         </div>
         <div class="f wide">
           <label for="plotter-lower-rate">Lower speed</label>
-          <input id="plotter-lower-rate" type="number" min="100" step="100" bind:value={studio.settings.pen_rate_lower} onchange={() => save()} />
+          <NumStep id="plotter-lower-rate" min={100} step={100} bind:value={studio.settings.pen_rate_lower} onchange={() => save()} />
         </div>
         <div class="f">
           <label for="plotter-delay-up">Delay after up</label>
-          <input id="plotter-delay-up" type="number" min="0" step="10" bind:value={studio.settings.pen_delay_up} onchange={() => save()} />
+          <NumStep id="plotter-delay-up" min={0} step={10} bind:value={studio.settings.pen_delay_up} onchange={() => save()} />
         </div>
         <div class="f">
           <label for="plotter-delay-down">Delay after down</label>
-          <input id="plotter-delay-down" type="number" min="0" step="10" bind:value={studio.settings.pen_delay_down} onchange={() => save()} />
+          <NumStep id="plotter-delay-down" min={0} step={10} bind:value={studio.settings.pen_delay_down} onchange={() => save()} />
         </div>
       </div>
     {:else if studio.plotterTab === "manual"}
@@ -284,7 +285,7 @@
         </div>
         <div class="f step">
           <label for="plotter-jog-step">Step</label>
-          <input id="plotter-jog-step" type="number" min="0.1" step="1" bind:value={jogStep} />
+          <NumStep id="plotter-jog-step" min={0.1} step={1} bind:value={jogStep} />
         </div>
       </div>
       <div class="manual">
@@ -311,7 +312,7 @@
         </div>
         <div class="f">
           <label for="plotter-curve-step">Curve step</label>
-          <input id="plotter-curve-step" type="number" min="0.05" step="0.05" bind:value={studio.settings.curve_step_mm} onchange={() => save()} />
+          <NumStep id="plotter-curve-step" min={0.05} step={0.05} bind:value={studio.settings.curve_step_mm} onchange={() => save()} />
         </div>
         <label class="check" for="plotter-auto-rotate">
           <input id="plotter-auto-rotate" type="checkbox" bind:checked={studio.settings.auto_rotate} onchange={() => save()} />

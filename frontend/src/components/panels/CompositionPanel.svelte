@@ -2,6 +2,7 @@
   import { api } from "../../lib/api";
   import { anchorOffset, effectiveBounds, studio } from "../../lib/state.svelte";
   import type { CompositionLayerT } from "../../lib/types";
+  import NumStep from "../NumStep.svelte";
 
   const layersTopFirst = $derived([...studio.composition.layers].reverse());
 
@@ -164,52 +165,47 @@
     <div class="position">
       <div class="f">
         <label for="layer-x">X</label>
-        <input
+        <NumStep
           id="layer-x"
-          type="number"
-          step="0.1"
+          step={0.1}
           value={Math.round(selectedBounds.x * 10) / 10}
-          onchange={(e) => moveSelected("x", Number((e.target as HTMLInputElement).value))}
+          onchange={(v) => moveSelected("x", v)}
         />
       </div>
       <div class="f">
         <label for="layer-y">Y</label>
-        <input
+        <NumStep
           id="layer-y"
-          type="number"
-          step="0.1"
+          step={0.1}
           value={Math.round(selectedBounds.y * 10) / 10}
-          onchange={(e) => moveSelected("y", Number((e.target as HTMLInputElement).value))}
+          onchange={(v) => moveSelected("y", v)}
         />
       </div>
       <div class="f">
         <label for="layer-w">W (mm)</label>
-        <input
+        <NumStep
           id="layer-w"
-          type="number"
-          step="0.1"
+          step={0.1}
           value={Math.round(selectedBounds.width * 10) / 10}
-          onchange={(e) => setWidth(Number((e.target as HTMLInputElement).value))}
+          onchange={(v) => setWidth(v)}
         />
       </div>
       <div class="f">
         <label for="layer-h">H (mm)</label>
-        <input
+        <NumStep
           id="layer-h"
-          type="number"
-          step="0.1"
+          step={0.1}
           value={Math.round(selectedBounds.height * 10) / 10}
-          onchange={(e) => setHeight(Number((e.target as HTMLInputElement).value))}
+          onchange={(v) => setHeight(v)}
         />
       </div>
       <div class="f">
         <label for="layer-scale">Scale %</label>
-        <input
+        <NumStep
           id="layer-scale"
-          type="number"
-          step="1"
+          step={1}
           value={Math.round((studio.selectedLayer.scale ?? 1) * 100)}
-          onchange={(e) => applyScale(Number((e.target as HTMLInputElement).value) / 100)}
+          onchange={(v) => applyScale(v / 100)}
         />
       </div>
     </div>
@@ -361,9 +357,6 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-  }
-  .f input {
-    width: 100%;
   }
   .empty {
     color: var(--text-dim);

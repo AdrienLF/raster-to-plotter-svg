@@ -423,3 +423,33 @@ test("E11: editing a pen recalculates the generator pen cycle", async ({ page, r
   );
   await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
 });
+
+// E12: pen size is entered in mm and the rendered layer SVG uses it as the
+// stroke width, so the preview reflects the chosen pen size.
+test("E12: pen size (mm) drives the preview stroke width", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E E12");
+  await gotoApp(page);
+
+  await page.getByRole("button", { name: "＋ Generator" }).click();
+  await expect(page.locator(".gen-select")).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("button", { name: "✦ Generate", exact: true }).click();
+  await waitForGeneratedLayer(request, baseURL!);
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+
+  // Set the first pen's size to 2.5 mm via the Pens panel.
+  await page.locator(".pen .sz input").first().evaluate((el, v) => {
+    const input = el as HTMLInputElement;
+    input.value = v as string;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, "2.5");
+
+  await waitForComposition(
+    request,
+    baseURL!,
+    (composition) => (composition.layers[0]?.svg ?? "").includes('stroke-width="2.5"'),
+    "wait for the stroke-width to reflect the new pen size",
+    60_000,
+  );
+  await expect(page.locator(".status .state")).toHaveText("Ready", { timeout: 60_000 });
+});

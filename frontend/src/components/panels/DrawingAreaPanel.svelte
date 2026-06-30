@@ -1,6 +1,7 @@
 <script lang="ts">
   import { studio } from "../../lib/state.svelte";
   import { api } from "../../lib/api";
+  import NumStep from "../NumStep.svelte";
 
   function applyPreset(e: Event) {
     const name = (e.target as HTMLSelectElement).value;
@@ -47,20 +48,20 @@
       </div>
       <div class="f">
         <label>Width</label>
-        <input type="number" bind:value={studio.area.width} onchange={save} />
+        <NumStep bind:value={studio.area.width} onchange={save} />
       </div>
       <div class="f">
         <label>Height</label>
-        <input type="number" bind:value={studio.area.height} onchange={save} />
+        <NumStep bind:value={studio.area.height} onchange={save} />
       </div>
     </div>
 
     <label>Padding (L / R / T / B)</label>
     <div class="grid4">
-      <input type="number" bind:value={studio.area.pad_left} onchange={save} />
-      <input type="number" bind:value={studio.area.pad_right} onchange={save} />
-      <input type="number" bind:value={studio.area.pad_top} onchange={save} />
-      <input type="number" bind:value={studio.area.pad_bottom} onchange={save} />
+      <NumStep bind:value={studio.area.pad_left} onchange={save} />
+      <NumStep bind:value={studio.area.pad_right} onchange={save} />
+      <NumStep bind:value={studio.area.pad_top} onchange={save} />
+      <NumStep bind:value={studio.area.pad_bottom} onchange={save} />
     </div>
 
     <div class="grid2">
@@ -82,9 +83,8 @@
       </div>
       <div class="f">
         <label>Pen width (mm)</label>
-        <input
-          type="number"
-          step="0.05"
+        <NumStep
+          step={0.05}
           bind:value={studio.area.pen_width_mm}
           onchange={save}
         />

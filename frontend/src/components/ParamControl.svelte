@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Param } from "../lib/types";
+  import NumStep from "./NumStep.svelte";
 
   let { param, value = $bindable() }: { param: Param; value: any } = $props();
 
@@ -33,9 +34,8 @@
             bind:value
           />
         {/if}
-        <input
+        <NumStep
           class="numbox"
-          type="number"
           min={param.min ?? undefined}
           max={param.max ?? undefined}
           step={param.step ?? (param.type === "int" ? 1 : 0.01)}
@@ -75,9 +75,6 @@
     grid-template-columns: 1fr 56px;
     gap: 6px;
     align-items: center;
-  }
-  .numbox {
-    width: 100%;
   }
   select {
     width: 100%;

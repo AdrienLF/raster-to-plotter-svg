@@ -52,6 +52,11 @@ input, select {
 input[type="range"] { padding: 0; accent-color: var(--accent); }
 input[type="color"] { padding: 0; height: 22px; width: 30px; }
 input[type="checkbox"] { accent-color: var(--accent); }
+/* The native number spinners are oversized and hide the value; use the NumStep
+   component's slim arrows instead. This is the global safety net. */
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 label { color: var(--text-dim); }
 
 .row { display: flex; align-items: center; gap: 8px; }

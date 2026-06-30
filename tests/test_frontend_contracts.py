@@ -371,6 +371,25 @@ class FrontendContractsTest(unittest.TestCase):
         for shape_type in ("polygon", "star", "diamond", "cross", "spiral", "wave"):
             self.assertIn(f'layer.type === "{shape_type}"', editor)
 
+    def test_all_number_fields_use_the_readable_custom_stepper(self):
+        components = ROOT / "frontend/src/components"
+        native_number_inputs = []
+        for path in components.rglob("*.svelte"):
+            if path.name == "NumStep.svelte":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if re.search(r'<input\b[^>]*\btype\s*=\s*["\']number["\']', source, re.DOTALL):
+                native_number_inputs.append(path.relative_to(ROOT).as_posix())
+
+        self.assertEqual(native_number_inputs, [])
+
+        stepper = (components / "NumStep.svelte").read_text(encoding="utf-8")
+        self.assertIn('aria-label="Increase"', stepper)
+        self.assertIn('aria-label="Decrease"', stepper)
+        self.assertRegex(stepper, r"padding-right:\s*\d+px")
+        self.assertIn("title={inputTitle}", stepper)
+        self.assertIn("`${title}: ${fullValue}`", stepper)
+
 
 if __name__ == "__main__":
     unittest.main()

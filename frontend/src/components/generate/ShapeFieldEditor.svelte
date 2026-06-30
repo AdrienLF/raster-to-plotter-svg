@@ -1,6 +1,7 @@
 <script lang="ts">
   import { studio } from "../../lib/state.svelte";
   import type { ShapeLayerT } from "../../lib/types";
+  import NumStep from "../NumStep.svelte";
 
   const layers = $derived((studio.genParams.shape_layers ?? []) as ShapeLayerT[]);
 
@@ -47,10 +48,22 @@
     setLayers(next);
   }
 
-  function numeric(event: Event) {
-    return Number((event.currentTarget as HTMLInputElement).value);
-  }
 </script>
+
+{#snippet numField(
+  label: string,
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  set: (v: number) => void,
+  wide = false,
+)}
+  <label class="field" class:wide>
+    <span>{label}</span>
+    <NumStep {min} {max} {step} {value} onchange={set} aria-label={label} />
+  </label>
+{/snippet}
 
 <div class="shape-field-editor">
   <section class="group stack">
@@ -125,217 +138,36 @@
         </label>
 
         <div class="numeric-grid">
-          <label class="field">
-            <span>Scale</span>
-            <input
-              type="number"
-              min="0"
-              max="4"
-              step="0.01"
-              value={layer.scale}
-              aria-label={`Shape ${index + 1} scale`}
-              onchange={(event) => patchLayer(layer.id, { scale: numeric(event) })}
-            />
-          </label>
-          <label class="field">
-            <span>Rotation</span>
-            <input
-              type="number"
-              min="-360"
-              max="360"
-              step="1"
-              value={layer.rotation}
-              aria-label={`Shape ${index + 1} rotation`}
-              onchange={(event) => patchLayer(layer.id, { rotation: numeric(event) })}
-            />
-          </label>
-          <label class="field">
-            <span>Offset X</span>
-            <input
-              type="number"
-              min="-4"
-              max="4"
-              step="0.01"
-              value={layer.offset_x}
-              aria-label={`Shape ${index + 1} offset X`}
-              onchange={(event) => patchLayer(layer.id, { offset_x: numeric(event) })}
-            />
-          </label>
-          <label class="field">
-            <span>Offset Y</span>
-            <input
-              type="number"
-              min="-4"
-              max="4"
-              step="0.01"
-              value={layer.offset_y}
-              aria-label={`Shape ${index + 1} offset Y`}
-              onchange={(event) => patchLayer(layer.id, { offset_y: numeric(event) })}
-            />
-          </label>
-          <label class="field">
-            <span>Repeats</span>
-            <input
-              type="number"
-              min="1"
-              max="24"
-              step="1"
-              value={layer.repeat_count}
-              aria-label={`Shape ${index + 1} repeats`}
-              onchange={(event) =>
-                patchLayer(layer.id, { repeat_count: numeric(event) })}
-            />
-          </label>
-          <label class="field">
-            <span>Repeat scale</span>
-            <input
-              type="number"
-              min="0.05"
-              max="2"
-              step="0.01"
-              value={layer.repeat_scale}
-              aria-label={`Shape ${index + 1} repeat scale`}
-              onchange={(event) =>
-                patchLayer(layer.id, { repeat_scale: numeric(event) })}
-            />
-          </label>
-          <label class="field wide">
-            <span>Repeat rotation</span>
-            <input
-              type="number"
-              min="-360"
-              max="360"
-              step="1"
-              value={layer.repeat_rotation}
-              aria-label={`Shape ${index + 1} repeat rotation`}
-              onchange={(event) =>
-                patchLayer(layer.id, { repeat_rotation: numeric(event) })}
-            />
-          </label>
+          {@render numField("Scale", layer.scale, 0, 4, 0.01, (v) => patchLayer(layer.id, { scale: v }))}
+          {@render numField("Rotation", layer.rotation, -360, 360, 1, (v) => patchLayer(layer.id, { rotation: v }))}
+          {@render numField("Offset X", layer.offset_x, -4, 4, 0.01, (v) => patchLayer(layer.id, { offset_x: v }))}
+          {@render numField("Offset Y", layer.offset_y, -4, 4, 0.01, (v) => patchLayer(layer.id, { offset_y: v }))}
+          {@render numField("Repeats", layer.repeat_count, 1, 24, 1, (v) => patchLayer(layer.id, { repeat_count: v }))}
+          {@render numField("Repeat scale", layer.repeat_scale, 0.05, 2, 0.01, (v) => patchLayer(layer.id, { repeat_scale: v }))}
+          {@render numField("Repeat rotation", layer.repeat_rotation, -360, 360, 1, (v) => patchLayer(layer.id, { repeat_rotation: v }), true)}
 
           {#if layer.type === "circle" || layer.type === "spiral" || layer.type === "wave"}
-            <label class="field">
-              <span>Segments</span>
-              <input
-                type="number"
-                min="3"
-                max="360"
-                step="1"
-                value={layer.segments}
-                aria-label={`Shape ${index + 1} segments`}
-                onchange={(event) => patchLayer(layer.id, { segments: numeric(event) })}
-              />
-            </label>
+            {@render numField("Segments", layer.segments, 3, 360, 1, (v) => patchLayer(layer.id, { segments: v }))}
           {/if}
           {#if layer.type === "polygon"}
-            <label class="field">
-              <span>Sides</span>
-              <input
-                type="number"
-                min="3"
-                max="24"
-                step="1"
-                value={layer.sides}
-                aria-label={`Shape ${index + 1} sides`}
-                onchange={(event) => patchLayer(layer.id, { sides: numeric(event) })}
-              />
-            </label>
+            {@render numField("Sides", layer.sides, 3, 24, 1, (v) => patchLayer(layer.id, { sides: v }))}
           {/if}
           {#if layer.type === "star"}
-            <label class="field">
-              <span>Points</span>
-              <input
-                type="number"
-                min="3"
-                max="24"
-                step="1"
-                value={layer.points}
-                aria-label={`Shape ${index + 1} points`}
-                onchange={(event) => patchLayer(layer.id, { points: numeric(event) })}
-              />
-            </label>
-            <label class="field">
-              <span>Inner ratio</span>
-              <input
-                type="number"
-                min="0.05"
-                max="0.95"
-                step="0.01"
-                value={layer.inner_ratio}
-                aria-label={`Shape ${index + 1} inner ratio`}
-                onchange={(event) =>
-                  patchLayer(layer.id, { inner_ratio: numeric(event) })}
-              />
-            </label>
+            {@render numField("Points", layer.points, 3, 24, 1, (v) => patchLayer(layer.id, { points: v }))}
+            {@render numField("Inner ratio", layer.inner_ratio, 0.05, 0.95, 0.01, (v) => patchLayer(layer.id, { inner_ratio: v }))}
           {/if}
           {#if layer.type === "diamond"}
-            <label class="field">
-              <span>Aspect</span>
-              <input
-                type="number"
-                min="0.1"
-                max="3"
-                step="0.01"
-                value={layer.aspect}
-                aria-label={`Shape ${index + 1} aspect`}
-                onchange={(event) => patchLayer(layer.id, { aspect: numeric(event) })}
-              />
-            </label>
+            {@render numField("Aspect", layer.aspect, 0.1, 3, 0.01, (v) => patchLayer(layer.id, { aspect: v }))}
           {/if}
           {#if layer.type === "cross"}
-            <label class="field">
-              <span>Arm width</span>
-              <input
-                type="number"
-                min="0.05"
-                max="0.95"
-                step="0.01"
-                value={layer.arm_width}
-                aria-label={`Shape ${index + 1} arm width`}
-                onchange={(event) =>
-                  patchLayer(layer.id, { arm_width: numeric(event) })}
-              />
-            </label>
+            {@render numField("Arm width", layer.arm_width, 0.05, 0.95, 0.01, (v) => patchLayer(layer.id, { arm_width: v }))}
           {/if}
           {#if layer.type === "spiral"}
-            <label class="field">
-              <span>Turns</span>
-              <input
-                type="number"
-                min="0.25"
-                max="12"
-                step="0.05"
-                value={layer.turns}
-                aria-label={`Shape ${index + 1} turns`}
-                onchange={(event) => patchLayer(layer.id, { turns: numeric(event) })}
-              />
-            </label>
+            {@render numField("Turns", layer.turns, 0.25, 12, 0.05, (v) => patchLayer(layer.id, { turns: v }))}
           {/if}
           {#if layer.type === "wave"}
-            <label class="field">
-              <span>Cycles</span>
-              <input
-                type="number"
-                min="0.25"
-                max="12"
-                step="0.05"
-                value={layer.cycles}
-                aria-label={`Shape ${index + 1} cycles`}
-                onchange={(event) => patchLayer(layer.id, { cycles: numeric(event) })}
-              />
-            </label>
-            <label class="field">
-              <span>Amplitude</span>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.01"
-                value={layer.amplitude}
-                aria-label={`Shape ${index + 1} amplitude`}
-                onchange={(event) => patchLayer(layer.id, { amplitude: numeric(event) })}
-              />
-            </label>
+            {@render numField("Cycles", layer.cycles, 0.25, 12, 0.05, (v) => patchLayer(layer.id, { cycles: v }))}
+            {@render numField("Amplitude", layer.amplitude, 0, 1, 0.01, (v) => patchLayer(layer.id, { amplitude: v }))}
           {/if}
         </div>
       </article>
@@ -455,7 +287,6 @@
     grid-column: 1 / -1;
     margin-top: 7px;
   }
-  .field input,
   .field select {
     width: 100%;
   }

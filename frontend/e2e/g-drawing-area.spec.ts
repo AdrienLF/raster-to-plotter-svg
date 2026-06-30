@@ -96,3 +96,32 @@ test("G5: switching page preset preserves existing layers", async ({ page, reque
   expect(composition.layers.length).toBe(1);
   expect(composition.layers[0].id).toBe(layerId);
 });
+
+// G6: custom number steppers reserve space for slim controls and expose the
+// complete current value through the input title.
+test("G6: number fields use readable custom steppers", async ({ page, request, baseURL }) => {
+  await freshProject(request, baseURL!, "E2E G6");
+  await gotoApp(page);
+  await page.getByRole("button", { name: "Drawing Area" }).click();
+
+  const paddingSteppers = page.locator(".grid4 .numstep");
+  await expect(paddingSteppers).toHaveCount(4);
+
+  const firstStepper = paddingSteppers.first();
+  const input = firstStepper.locator("input");
+  const increase = firstStepper.getByRole("button", { name: "Increase" });
+  await expect(input).toHaveAttribute("title", "0");
+  await increase.click();
+
+  await expect(input).toHaveValue("1");
+  await expect(input).toHaveAttribute("title", "1");
+  const rightPadding = await input.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).paddingRight),
+  );
+  expect(rightPadding).toBeGreaterThanOrEqual(15);
+
+  await expect.poll(async () => {
+    const { area } = await (await request.get(`${baseURL}/api/area`)).json();
+    return area.pad_left;
+  }).toBe(1);
+});

@@ -2,6 +2,7 @@
   import { studio } from "../../lib/state.svelte";
   import { api } from "../../lib/api";
   import type { Pen } from "../../lib/types";
+  import NumStep from "../NumStep.svelte";
 
   async function save() {
     await api.savePens();
@@ -74,15 +75,18 @@
           />
           <input type="color" bind:value={pen.colour} onchange={save} />
           <input class="name" bind:value={pen.name} onchange={save} />
-          <input
+          <NumStep
             class="w"
-            type="number"
-            min="0"
-            step="0.5"
+            min={0}
+            step={0.5}
             bind:value={pen.weight}
             onchange={save}
-            title="Weight"
+            title="Weight (share of shapes)"
           />
+          <label class="sz" title="Pen size (mm) — reflected in the preview stroke width">
+            <NumStep min={0.05} step={0.1} bind:value={pen.stroke_mm} onchange={save} />
+            <span>mm</span>
+          </label>
           <span class="pct">{pct(pen)}%</span>
           <button class="icon del" title="Remove" onclick={() => removePen(i)}>✕</button>
         </div>
@@ -121,13 +125,23 @@
   }
   .pen {
     display: grid;
-    grid-template-columns: auto 30px 1fr 46px 34px auto;
+    grid-template-columns: auto 28px minmax(0, 1fr) 40px 60px 30px auto;
     gap: 5px;
     align-items: center;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 3px 5px;
+  }
+  .sz {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 3px;
+  }
+  .sz span {
+    font-size: 10px;
+    color: var(--text-dim);
   }
   .pen.off {
     opacity: 0.45;
