@@ -441,6 +441,15 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIsNotNone(switch)
         self.assertIn("plotPlayback.reset()", switch.group("body"))
 
+        # A layer change (visibility/geometry/order) invalidates a loaded preview.
+        apply_comp = re.search(
+            r"applyComposition\(payload: any\) \{(?P<body>.*?)\n  \},",
+            api_ts,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(apply_comp)
+        self.assertIn("plotPlayback.reset()", apply_comp.group("body"))
+
         # Playback engine exports the singleton and its controls.
         self.assertIn("export const plotPlayback", playback)
         for member in ("load", "retime", "play", "pause", "seek", "segIndexAtOrBefore", "segAt"):

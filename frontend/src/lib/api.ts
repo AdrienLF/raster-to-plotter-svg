@@ -253,6 +253,9 @@ export const api = {
   applyComposition(payload: any) {
     if (payload?.composition) studio.composition = payload.composition;
     if (payload && "svg" in payload) studio.previewSvg = payload.svg;
+    // A layer change (visibility, geometry, order) invalidates a loaded preview —
+    // it must never keep showing a now-hidden/removed layer. Force a reload.
+    if (plotPlayback.loaded || plotPlayback.loading) plotPlayback.reset();
   },
 
   applyRegions(payload: any) {
