@@ -160,6 +160,24 @@ class CavalryBridgeTest(unittest.TestCase):
         self.post(session=session)
         return self.comp.layers[0]
 
+    def test_live_frames_preserve_user_crop_and_mask(self):
+        # A live capture the user has masked must stay masked across frames — even
+        # when normalize_svg_to_page nudges the layer size (letterbox of a changing
+        # viewBox). Clearing it wiped the mask every frame, so the plot ran
+        # unmasked while a preview snapped in the masked window looked correct.
+        layer = self._capture_layer("aaa")
+        layer.mask = {"type": "rect", "x": 0, "y": 0, "width": 50, "height": 100}
+        layer.crop = {"x": 1, "y": 2, "width": 10, "height": 20}
+        # Next frame with a different aspect → different normalized size.
+        r = self.post(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+            '<path d="M0 0 L100 0" stroke="#000"/></svg>',
+            session="aaa",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(layer.mask, {"type": "rect", "x": 0, "y": 0, "width": 50, "height": 100})
+        self.assertEqual(layer.crop, {"x": 1, "y": 2, "width": 10, "height": 20})
+
     def test_new_session_prompts_instead_of_overwriting(self):
         layer = self._capture_layer("aaa")
         old_svg = layer.svg

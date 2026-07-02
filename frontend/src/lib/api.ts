@@ -250,12 +250,14 @@ export const api = {
     }
   },
 
-  applyComposition(payload: any) {
+  applyComposition(payload: any, resetPreview = true) {
     if (payload?.composition) studio.composition = payload.composition;
     if (payload && "svg" in payload) studio.previewSvg = payload.svg;
-    // A layer change (visibility, geometry, order) invalidates a loaded preview —
-    // it must never keep showing a now-hidden/removed layer. Force a reload.
-    if (plotPlayback.loaded || plotPlayback.loading) plotPlayback.reset();
+    // A user layer change (visibility, geometry, order) invalidates a loaded
+    // preview so it can't show a now-hidden/removed layer. resetPreview=false
+    // for continuous non-user updates (live cavalry frames) that would else
+    // nuke a just-loaded preview every frame.
+    if (resetPreview && (plotPlayback.loaded || plotPlayback.loading)) plotPlayback.reset();
   },
 
   applyRegions(payload: any) {
@@ -267,7 +269,7 @@ export const api = {
 
   async refreshComposition() {
     const j = await jget("/api/composition");
-    this.applyComposition(j);
+    this.applyComposition(j, false);
     return j;
   },
 

@@ -443,12 +443,14 @@ class FrontendContractsTest(unittest.TestCase):
 
         # A layer change (visibility/geometry/order) invalidates a loaded preview.
         apply_comp = re.search(
-            r"applyComposition\(payload: any\) \{(?P<body>.*?)\n  \},",
+            r"applyComposition\(payload: any.*?\) \{(?P<body>.*?)\n  \},",
             api_ts,
             re.DOTALL,
         )
         self.assertIsNotNone(apply_comp)
         self.assertIn("plotPlayback.reset()", apply_comp.group("body"))
+        # Live cavalry frames must NOT reset the preview (they'd nuke it each frame).
+        self.assertIn("this.applyComposition(j, false)", api_ts)
 
         # Playback engine exports the singleton and its controls.
         self.assertIn("export const plotPlayback", playback)

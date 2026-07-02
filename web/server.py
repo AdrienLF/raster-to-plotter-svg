@@ -1838,14 +1838,14 @@ def _cavalry_live_layer(comp):
     return next((l for l in _cavalry_layers(comp) if l.source.get('live')), None)
 
 def _cavalry_apply(layer, svg):
-    # Update in place: keep x/y/scale (and selection) so user placement of the
-    # capture layer survives every post from Cavalry.
-    w, h = parse_svg_size_mm(svg)
-    if (w, h) != (layer.width, layer.height):
-        # Crop/mask are keyed to the previous geometry.
-        layer.crop = None
-        layer.mask = None
-    layer.width, layer.height = w, h
+    # Update in place: keep x/y/scale, selection, AND the user's crop/mask so a
+    # live capture stays masked/cropped across every frame. normalize_svg_to_page
+    # can nudge the layer size frame-to-frame (letterbox fit of a changing
+    # viewBox); clearing crop/mask on any size change wiped the mask every frame,
+    # so a live layer could never keep one — the plot then ran unmasked while a
+    # preview snapped during the brief masked window looked correct. Crop/mask are
+    # layer-local mm and stay meaningful as the scene animates, so preserve them.
+    layer.width, layer.height = parse_svg_size_mm(svg)
     layer.svg = svg
 
 def _cavalry_arm(comp, layer):
