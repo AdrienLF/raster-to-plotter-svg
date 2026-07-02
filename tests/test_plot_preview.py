@@ -9,6 +9,20 @@ SIMPLE_SVG = b"""<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10
   <path d="M0 0 L10 0 L10 10"/>
 </svg>"""
 
+# One labelled pen → split has a single entry; the plot (and preview) must fall
+# back to the whole composed SVG, not the per-pen split (which would drop any
+# unlabelled baked geometry, e.g. a masked cavalry layer).
+ONE_PEN_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" '
+    'viewBox="0 0 100 100">'
+    '<g data-layer-id="L1" transform="translate(0 0)">'
+    '<g xmlns:ns0="http://www.inkscape.org/namespaces/inkscape" '
+    'ns0:groupmode="layer" ns0:label="Black" fill="none" stroke="#000000">'
+    '<path d="M0,0 L10,0"/></g>'
+    '<path d="M0,20 L10,20"/>'  # unlabelled (masked-layer style) content
+    '</g></svg>'
+).encode()
+
 # Same composed 2-pen fixture as test_multipen_plot: Black (2 paths), Blue (1).
 TWO_PEN_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" '
@@ -73,6 +87,19 @@ class PlotPreviewTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.get_json()["pens"]), 1)
+
+    def test_single_pen_uses_whole_svg_keeping_unlabelled_paths(self):
+        server._current_svg = ONE_PEN_SVG
+        server._project.drawing_set = DrawingSet(pens=[Pen(name="Black", colour="#000000")])
+
+        response = self.client.get("/api/plot/preview-paths")
+
+        self.assertEqual(response.status_code, 200)
+        pens = response.get_json()["pens"]
+        # Not split per pen: one synthetic entry covering the whole drawing,
+        # including the unlabelled (masked-style) path the split would drop.
+        self.assertEqual(len(pens), 1)
+        self.assertEqual(len(pens[0]["paths"]), 2)
 
     def test_multipen_splits_in_pen_order(self):
         server._current_svg = TWO_PEN_SVG

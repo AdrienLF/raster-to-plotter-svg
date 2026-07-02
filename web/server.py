@@ -1979,7 +1979,11 @@ def plot_preview_paths():
     try:
         settings = cfg.copy()
         split = _split_svg_pens(_current_svg)
-        if split:
+        # Mirror _create_plot_job exactly: only a >1-pen drawing plots per pen.
+        # A single-pen (or unlabelled, e.g. masked/cavalry) drawing plots the
+        # whole composed SVG — where crop/mask are already baked into geometry —
+        # so preview geometry matches what actually plots.
+        if len(split) > 1:
             entries = [(p['name'], p['colour'], p['svg'].encode('utf-8'))
                        for p in split]
         else:

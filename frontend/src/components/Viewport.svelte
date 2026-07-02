@@ -54,6 +54,9 @@
   const selectedLayer = $derived(studio.selectedLayer);
 
   // ── Plot preview overlay ────────────────────────────────────────────────
+  // When a preview is loaded on the Plot step the drawing is hidden so the
+  // animation plays onto a blank page.
+  const previewActive = $derived(studio.step === "plot" && plotPlayback.loaded);
   let plotInk: HTMLCanvasElement | undefined = $state();
   let plotLive: HTMLCanvasElement | undefined = $state();
   let inkDrawnUpTo = -1; // last segment index committed to the ink canvas
@@ -137,7 +140,7 @@
     const t = plotPlayback.currentTime;
     const gen = plotPlayback.loadGeneration;
     void page.w; void page.h;
-    if (studio.step === "plot" && plotPlayback.loaded) drawPlotFrame(t, gen);
+    if (previewActive) drawPlotFrame(t, gen);
   });
 
   const drawingSize = $derived.by(() => {
@@ -838,6 +841,7 @@
             class="art"
             class:selected={layer.id === studio.composition.selected_layer_id}
             class:show-bounds={studio.showLayerBounds}
+            class:preview-off={previewActive}
             style:left={`${eb.x * PX_PER_MM}px`}
             style:top={`${eb.y * PX_PER_MM}px`}
             style:width={`${eb.width * PX_PER_MM}px`}
@@ -1011,7 +1015,7 @@
           </svg>
         {/if}
 
-        {#if studio.step === "plot" && plotPlayback.loaded}
+        {#if previewActive}
           <canvas
             class="plot-ink"
             bind:this={plotInk}
@@ -1070,6 +1074,9 @@
   }
   .plot-live {
     z-index: 1;
+  }
+  .art.preview-off {
+    display: none;
   }
   .guide,
   .sheet-mid-v,
