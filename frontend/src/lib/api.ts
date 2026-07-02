@@ -201,6 +201,7 @@ export const api = {
     studio.maskMode = null;
     studio.maskEdit = false;
     studio.layerStyleOpen = false;
+    studio.cavalryPrompt = null;
     try {
       return await this.boot(generation);
     } catch (error) {
@@ -311,6 +312,21 @@ export const api = {
     const j = await jpost("/api/composition/add-layer", { region_id: region_id ?? undefined });
     this.applyComposition(j);
     await this.refreshEstimate(true);
+    return j;
+  },
+
+  // Armed Cavalry capture layer: receives live frames from the Cavalry bridge.
+  async addCavalryLayer() {
+    const j = await jpost("/api/composition/cavalry-layer");
+    this.applyComposition(j);
+    return j;
+  },
+
+  // Answer the "Cavalry reconnected" prompt.
+  async cavalrySession(action: "new" | "continue" | "dismiss") {
+    const j = await jpost("/api/cavalry/session", { action });
+    studio.cavalryPrompt = null;
+    if (j.composition) this.applyComposition(j);
     return j;
   },
 
@@ -845,6 +861,9 @@ export function connectStream() {
     if (m.t === "ping") return;
     if (m.t === "proc") handleProc(m);
     else if (m.t === "log") pushLog(m.msg);
+    else if (m.t === "cavalry") void api.refreshComposition();
+    else if (m.t === "cavalry_session")
+      studio.cavalryPrompt = { session: m.session, layer_id: m.layer_id ?? null, layer_name: m.layer_name ?? null };
     else if (m.t === "state") {
       studio.plotting =
         m.state === "plotting" ||

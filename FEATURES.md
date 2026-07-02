@@ -24,6 +24,9 @@ A running list of what this software does. One line each. Updated on every commi
 - **Overwrite guard** — Pressing ✦ Generate on a layer that already holds a generation prompts a warning, offering to create a new layer instead of overwriting it.
 - **Spokes & Circles pen distribution** — Optionally cycle the drawing-set's pens across the generator's elements: one pen per spoke, and circles either per-cluster or per-ring. Per-ring colors can be progressively staggered by a configurable number of pens across successive clusters. Choose dedicated pens for rays and borders; control forward/reverse order and the starting offset; changes follow the live enabled pen list and emit one Inkscape layer per colour.
 
+## Live bridges
+- **Cavalry capture layers** — Add an explicit Cavalry layer, then the Cavalry UI script (`cavalry/plotter-bridge.js`) streams debounced SVG frames into it while preserving its placement. Captures persist with the project; reopening the script asks whether to continue overwriting the live layer, start a new layer, or ignore that session.
+
 ## Composition (layers)
 - **Layer stack** — Multiple stacked layers, each bound to a region or the whole image; reorder, duplicate, delete, toggle visibility.
 - **Per-layer path finding** — Run a PFM per layer with independent params (`/pathfinding/generate`); switching a layer back to "Whole image" regenerates without the old region.

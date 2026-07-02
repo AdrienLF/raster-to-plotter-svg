@@ -105,8 +105,40 @@ class FrontendContractsTest(unittest.TestCase):
             "studio.maskMode = null",
             "studio.maskEdit = false",
             "studio.layerStyleOpen = false",
+            "studio.cavalryPrompt = null",
         ):
             self.assertIn(reset, before_boot)
+
+    def test_cavalry_capture_ui_contract(self):
+        app = (ROOT / "frontend/src/App.svelte").read_text(encoding="utf-8")
+        panel = (ROOT / "frontend/src/components/panels/CompositionPanel.svelte").read_text(encoding="utf-8")
+        state = (ROOT / "frontend/src/lib/state.svelte.ts").read_text(encoding="utf-8")
+        api_ts = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
+
+        self.assertIn("cavalryPrompt = $state", state)
+        self.assertIn("＋ Cavalry", panel)
+        self.assertIn("api.addCavalryLayer()", panel)
+        self.assertIn('layer.source?.bridge === "cavalry" && layer.source?.live', panel)
+        self.assertIn("LIVE", panel)
+        self.assertIn("Cavalry reconnected", app)
+        self.assertIn('api.cavalrySession("continue")', app)
+        self.assertIn('api.cavalrySession("new")', app)
+        self.assertIn('api.cavalrySession("dismiss")', app)
+        self.assertIn('jpost("/api/composition/cavalry-layer")', api_ts)
+        self.assertIn('jpost("/api/cavalry/session", { action })', api_ts)
+        self.assertIn('m.t === "cavalry_session"', api_ts)
+
+        decision = re.search(
+            r"async cavalrySession\(.*?\) \{(?P<body>.*?)\n  \},",
+            api_ts,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(decision)
+        body = decision.group("body")
+        self.assertLess(
+            body.index('await jpost("/api/cavalry/session", { action })'),
+            body.index("studio.cavalryPrompt = null"),
+        )
 
     def test_project_actions_invalidate_older_async_work_and_report_failures(self):
         api_ts = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")

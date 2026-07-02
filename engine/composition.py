@@ -70,6 +70,34 @@ def parse_svg_size_mm(svg: str) -> tuple[float, float]:
     return width, height
 
 
+def normalize_svg_to_page(svg: str, page: dict) -> str:
+    """Fit an arbitrary-unit SVG (e.g. a px-based Cavalry export) onto the mm page.
+
+    Uniform fit (letterbox): scale so the source viewBox fills the page without
+    cropping, producing a native mm document like every other layer. Without
+    this, compose/plot would read px user units as mm (``_inner_svg`` does no
+    unit rescaling) and a 1080 px export would plot 1080 mm wide.
+    """
+    root = _root(svg)
+    view_box = _viewbox(root)
+    if view_box:
+        vb_w, vb_h = view_box[2], view_box[3]
+    else:
+        # No viewBox: user units span the numeric width/height attributes.
+        vb_w = _user_units(root.attrib.get("width"), page["width"])
+        vb_h = _user_units(root.attrib.get("height"), page["height"])
+    if vb_w <= 0 or vb_h <= 0:
+        return svg
+    s = min(page["width"] / vb_w, page["height"] / vb_h)
+    body = f'<g transform="scale({_fmt(s)})">{_inner_svg(svg)}</g>'
+    return _svg_document(vb_w * s, vb_h * s, body)
+
+
+def _user_units(value: str | None, fallback: float) -> float:
+    match = re.match(r"^([-+]?[0-9]*\.?[0-9]+)", str(value or "").strip())
+    return float(match.group(1)) if match else fallback
+
+
 def _inner_svg(svg: str) -> str:
     root = _root(svg)
     view_box = _viewbox(root)

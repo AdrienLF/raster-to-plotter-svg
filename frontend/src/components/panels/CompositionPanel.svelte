@@ -101,6 +101,7 @@
   <div class="topbar">
     <button class="add" onclick={addPfLayer}>＋ Path finding</button>
     <button class="add" onclick={addLayer}>＋ Generator</button>
+    <button class="add" onclick={() => api.addCavalryLayer()}>＋ Cavalry</button>
   </div>
 
   {#if studio.composition.layers.length}
@@ -118,7 +119,12 @@
             onchange={(e) => setVisible(layer.id, (e.target as HTMLInputElement).checked)}
           />
           <button class="pick" onclick={() => api.selectLayer(layer.id)}>
-            <span>{layer.name}</span>
+            <span>
+              {layer.name}
+              {#if layer.source?.bridge === "cavalry" && layer.source?.live}
+                <i class="live">LIVE</i>
+              {/if}
+            </span>
             <em>{Math.round(effectiveBounds(layer).width)} x {Math.round(effectiveBounds(layer).height)} mm</em>
             <em class="algo">
               {#if algo.name}
@@ -313,6 +319,17 @@
   }
   .danger-text {
     color: var(--danger);
+  }
+  .live {
+    font-style: normal;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--danger);
+    border-radius: 3px;
+    padding: 1px 4px;
+    margin-left: 5px;
+    vertical-align: 1px;
   }
   .occlusion {
     grid-column: 2;

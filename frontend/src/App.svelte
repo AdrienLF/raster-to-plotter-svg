@@ -126,6 +126,33 @@
   </div>
 {/if}
 
+{#if studio.cavalryPrompt}
+  <div class="modal-backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Cavalry reconnected">
+      <h3>Cavalry reconnected</h3>
+      <p>
+        {#if studio.cavalryPrompt.layer_name}
+          Keep capturing into “{studio.cavalryPrompt.layer_name}” (its content will be
+          overwritten), or start a new layer?
+        {:else}
+          Cavalry is sending frames but no capture layer exists. Start a new layer?
+        {/if}
+      </p>
+      <div class="modal-actions">
+        {#if studio.cavalryPrompt.layer_name}
+          <button class="primary" onclick={() => api.cavalrySession("continue")}>
+            Continue on “{studio.cavalryPrompt.layer_name}”
+          </button>
+          <button onclick={() => api.cavalrySession("new")}>New layer</button>
+        {:else}
+          <button class="primary" onclick={() => api.cavalrySession("new")}>New layer</button>
+        {/if}
+        <button onclick={() => api.cavalrySession("dismiss")}>Ignore this session</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <input
   bind:this={fileInput}
   type="file"

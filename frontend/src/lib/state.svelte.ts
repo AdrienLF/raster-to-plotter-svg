@@ -99,6 +99,7 @@ class Studio {
   plotProgress = $state<PlotProgress | null>(null);
   plotterTab = $state("estimate");
   penChange = $state<PenChange | null>(null);
+  cavalryPrompt = $state<{ session: string; layer_id: string | null; layer_name: string | null } | null>(null);
 
   // preview + status
   previewSvg = $state<string | null>(null);

@@ -18,7 +18,10 @@ from engine.params import schema_json, validate
 from engine.pfm import REGISTRY, get as get_pfm, list_pfms
 from engine.generate import GENERATORS, get_generator, list_generators
 from engine.genframe import apply_framework
-from engine.composition import compose_visible_svg, layer_svg_zip, parse_svg_size_mm, replace_selected_layer
+from engine.composition import (
+    compose_visible_svg, layer_svg_zip, normalize_svg_to_page, parse_svg_size_mm,
+    replace_selected_layer,
+)
 from engine.regions import mask_bbox
 from engine import project as project_mod
 from engine.project import Project, VersionSnapshotError, get_or_create
@@ -166,6 +169,9 @@ def _project_public(p):
 
 def _switch_project(pid):
     global _project, _drawing, _current_svg, _placement
+    global _cavalry_pending, _cavalry_dismissed
+    _cavalry_pending = None  # a parked Cavalry frame belongs to the old project
+    _cavalry_dismissed = None
     _reset_events('proc', 'state')
     _project = get_or_create(pid)
     _drawing = None
@@ -1817,6 +1823,106 @@ def upload():
         composition=_composition_payload(),
     )
 
+# ── Cavalry live bridge ─────────────────────────────────────────────────────────
+# At most one cavalry layer is "live" (the capture target). A new Cavalry script
+# session (new script window = new session id) may not silently overwrite an
+# existing layer: the frame is parked here until the user decides in the app —
+# continue on the existing layer, start a new one, or ignore the session.
+_cavalry_pending = None    # {'session': str, 'svg': str}
+_cavalry_dismissed = None  # session id the user chose to ignore
+
+def _cavalry_layers(comp):
+    return [l for l in comp.layers if l.source.get('bridge') == 'cavalry']
+
+def _cavalry_live_layer(comp):
+    return next((l for l in _cavalry_layers(comp) if l.source.get('live')), None)
+
+def _cavalry_apply(layer, svg):
+    # Update in place: keep x/y/scale (and selection) so user placement of the
+    # capture layer survives every post from Cavalry.
+    w, h = parse_svg_size_mm(svg)
+    if (w, h) != (layer.width, layer.height):
+        # Crop/mask are keyed to the previous geometry.
+        layer.crop = None
+        layer.mask = None
+    layer.width, layer.height = w, h
+    layer.svg = svg
+
+def _cavalry_arm(comp, layer):
+    for other in _cavalry_layers(comp):
+        other.source['live'] = other is layer
+
+@app.route('/api/cavalry', methods=['POST'])
+def cavalry_bridge():
+    """Live bridge: Cavalry posts the current frame's SVG on scene changes.
+
+    Cheap by design — store + dirty-flag + SSE emit; the heavy recompose stays
+    deferred to plot/estimate/export like every other layer mutation.
+    """
+    global _cavalry_pending
+    raw = request.get_data(as_text=True)
+    if '<svg' not in raw:
+        return jsonify(error='Body must be an SVG document'), 400
+    comp = _composition()
+    try:
+        svg = normalize_svg_to_page(raw, comp.page)
+    except ET.ParseError as exc:
+        return jsonify(error=f'Unparseable SVG: {exc}'), 400
+    session = request.headers.get('X-Cavalry-Session') or 'unknown'
+    layer = _cavalry_live_layer(comp)
+    if layer is not None and layer.source.get('session') in (None, session):
+        # session None = layer just armed via ＋ Cavalry: adopt the first poster.
+        layer.source['session'] = session
+        _cavalry_apply(layer, svg)
+        _project.save_composition_layers()
+        _sync_current_svg_from_composition()
+        emit('cavalry')
+        return jsonify(ok=True, layer_id=layer.id)
+    # New Cavalry session (or no capture layer): park the frame (latest wins)
+    # and ask the user. Re-emit on every post so a freshly opened SPA still
+    # gets the prompt; dismissed sessions stay silent.
+    _cavalry_pending = {'session': session, 'svg': svg}
+    if session != _cavalry_dismissed:
+        target = layer or next(reversed(_cavalry_layers(comp)), None)
+        emit('cavalry_session', session=session,
+             layer_id=target.id if target else None,
+             layer_name=target.name if target else None)
+    return jsonify(pending=True), 202
+
+@app.route('/api/cavalry/session', methods=['POST'])
+def cavalry_session():
+    """User's answer to the reconnect prompt: continue / new layer / ignore."""
+    global _cavalry_pending, _cavalry_dismissed
+    action = (request.json or {}).get('action')
+    if action not in ('new', 'continue', 'dismiss'):
+        return jsonify(error='action must be new, continue, or dismiss'), 400
+    if _cavalry_pending is None:
+        return jsonify(error='No pending Cavalry session'), 409
+    comp = _composition()
+    session, svg = _cavalry_pending['session'], _cavalry_pending['svg']
+    if action == 'dismiss':
+        _cavalry_dismissed = session
+        _cavalry_pending = None
+        return jsonify(ok=True)
+    if action == 'new':
+        layer = comp.add_layer(
+            svg, name=f'Cavalry {len(_cavalry_layers(comp)) + 1}', kind='svg',
+            source={'bridge': 'cavalry', 'live': True, 'session': session},
+        )
+    else:  # continue
+        layer = _cavalry_live_layer(comp) or next(reversed(_cavalry_layers(comp)), None)
+        if layer is None:
+            return jsonify(error='No Cavalry layer to continue on'), 409
+        layer.source.update(live=True, session=session)
+        _cavalry_apply(layer, svg)
+    _cavalry_arm(comp, layer)
+    _cavalry_pending = None
+    _cavalry_dismissed = None
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    emit('cavalry')
+    return jsonify(ok=True, layer_id=layer.id, composition=_composition_payload())
+
 @app.route('/api/placement', methods=['POST'])
 def placement_route():
     global _placement
@@ -2135,6 +2241,33 @@ def api_add_layer():
     region_id = data.get('region_id') or None
     if region_id and _project.get_region(region_id):
         layer.region_id = region_id
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
+    return jsonify(ok=True, composition=_composition_payload())
+
+@app.route('/api/composition/cavalry-layer', methods=['POST'])
+def api_add_cavalry_layer():
+    # Armed capture layer: adopts the first Cavalry session that posts. If a
+    # frame is already parked (user clicked ＋ instead of answering the
+    # reconnect prompt), bind and show it immediately.
+    global _cavalry_pending
+    comp = _composition()
+    page = comp.page or {}
+    w = float(page.get('width') or 297)
+    h = float(page.get('height') or 420)
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}mm" '
+        f'height="{h}mm" viewBox="0 0 {w} {h}"></svg>'
+    )
+    layer = comp.add_layer(
+        svg, f'Cavalry {len(_cavalry_layers(comp)) + 1}', 'svg',
+        {'bridge': 'cavalry', 'live': True, 'session': None},
+    )
+    _cavalry_arm(comp, layer)
+    if _cavalry_pending is not None:
+        layer.source['session'] = _cavalry_pending['session']
+        _cavalry_apply(layer, _cavalry_pending['svg'])
+        _cavalry_pending = None
     _project.save_composition_layers()
     _sync_current_svg_from_composition()
     return jsonify(ok=True, composition=_composition_payload())
