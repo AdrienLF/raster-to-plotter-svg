@@ -155,54 +155,124 @@ def _pen_label(el) -> str | None:
             or el.get("label"))
 
 
+# Drawable leaf shapes a split can assign to a pen. Non-drawable containers
+# (<g>, <defs>, …) are never assigned directly.
+_DRAWABLES = ("path", "circle", "ellipse", "rect", "line", "polyline", "polygon")
+# Subtrees whose geometry is definitional, not drawn: never a pen's shape.
+_SKIP_ANCESTORS = ("defs", "clipPath", "mask", "symbol", "marker")
+_ASSIGN_ATTR = "__pen_assign__"  # scratch tag, stripped before serialize
+
+
+def _under_skip(el, parent_map) -> bool:
+    node = parent_map.get(el)
+    while node is not None:
+        if _local(node.tag) in _SKIP_ANCESTORS:
+            return True
+        node = parent_map.get(node)
+    return False
+
+
+def _label_ancestor(el, parent_map) -> str | None:
+    """Nearest inkscape:label on the element or an ancestor (labels win)."""
+    node = el
+    while node is not None:
+        lbl = _pen_label(node)
+        if lbl is not None:
+            return lbl
+        node = parent_map.get(node)
+    return None
+
+
+def _effective_colour(el, parent_map) -> str:
+    """Element's drawn colour: own/inherited ``stroke`` (ignoring ``none``),
+    else ``fill``, else black. Presentation attributes only (no CSS ``style``)."""
+    node = el
+    stroke = fill = None
+    while node is not None:
+        if stroke is None:
+            s = node.get("stroke")
+            if s and s.strip().lower() != "none":
+                stroke = s
+        if fill is None:
+            f = node.get("fill")
+            if f and f.strip().lower() != "none":
+                fill = f
+        node = parent_map.get(node)
+    return stroke or fill or "#000000"
+
+
+def _nearest_label(colour, pen_order) -> str | None:
+    """Name of the pen whose colour is nearest ``colour`` (sRGB euclidean)."""
+    from .pens import hex_to_rgb
+    r, g, b = hex_to_rgb(colour)
+    best = None
+    best_d = None
+    for name, pcol in pen_order:
+        pr, pg, pb = hex_to_rgb(pcol)
+        d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+        if best_d is None or d < best_d:
+            best_d, best = d, name
+    return best
+
+
 def split_svg_by_pen(svg_bytes, pen_order):
     """Split a composed multi-layer SVG into one SVG per pen.
 
-    The composed document groups paths into Inkscape layer groups
-    (``<g inkscape:groupmode="layer" inkscape:label="{pen}" stroke="{colour}">``,
-    produced by ``_render_layer`` / ``_lines_group``) nested inside the
-    composition's per-layer ``<g transform=…>`` wrappers. Each returned SVG keeps
-    those ancestor transforms so placement is unchanged, but contains only one
-    pen's groups — so the existing plot pipeline draws one pen at a time.
+    Two kinds of drawable are assigned to a pen:
 
-    ``pen_order`` is a list of ``(name, colour)`` (the enabled pen list, in order).
-    Returns ``[{"name", "colour", "shapes", "svg"}]`` for each pen label that has
-    drawable paths, ordered by ``pen_order`` first, then any leftover labels.
-    Drawable content that is not inside a labelled layer group is ignored (the
-    caller only uses the split when >1 pen is present; single/no-pen drawings keep
-    the legacy whole-SVG path).
+    * Geometry inside an Inkscape layer group
+      (``<g inkscape:label="{pen}">``, produced by ``_render_layer`` /
+      ``_lines_group``) keeps that label — labels always win.
+    * Any other drawable (raw imported/cavalry markup with no label) is matched
+      to the nearest enabled pen by its effective colour (own/inherited stroke,
+      else fill, else black). This is what lets unlabelled Cavalry strokes plot
+      per pen instead of being silently dropped.
+
+    ``pen_order`` is a list of ``(name, colour)`` (the enabled pen list, in
+    order). With no pens, unlabelled content stays unassigned (preserving the
+    "no pens → []" contract). Each returned SVG is the whole document with other
+    pens' drawables removed, so ancestor transforms, ``<defs>`` and ``clip-path``
+    refs (cavalry masks) and native ``<circle>`` fast paths are all preserved.
+    Returns ``[{"name", "colour", "shapes", "svg"}]`` ordered by ``pen_order``
+    first, then any leftover labels.
     """
     if isinstance(svg_bytes, str):
         svg_bytes = svg_bytes.encode("utf-8")
     root = ET.fromstring(svg_bytes)
     parent = {child: el for el in root.iter() for child in el}
+    pen_order = pen_order or []
+    pen_colours = dict(pen_order)
 
-    # Bucket each pen-layer <g> by its label, in document order.
+    # Pass 1 — assign each drawable a pen label, tagging it in place.
     buckets: dict[str, dict] = {}
     order_seen: list[str] = []
     for el in root.iter():
-        if _local(el.tag) != "g":
+        if _local(el.tag) not in _DRAWABLES:
             continue
-        label = _pen_label(el)
+        if _under_skip(el, parent):
+            continue
+        label = _label_ancestor(el, parent)
         if label is None:
-            continue
-        shapes = sum(1 for d in el.iter() if _local(d.tag) in ("path", "circle"))
-        if shapes == 0:
-            continue
+            if not pen_order:
+                continue  # unlabelled + no pens → dropped (legacy contract)
+            label = _nearest_label(_effective_colour(el, parent), pen_order)
+            if label is None:
+                continue
+        el.set(_ASSIGN_ATTR, label)
         b = buckets.get(label)
         if b is None:
-            b = {"colour": el.get("stroke") or "#000000", "groups": [], "shapes": 0}
+            b = {"colour": pen_colours.get(label)
+                 or _effective_colour(el, parent), "shapes": 0}
             buckets[label] = b
             order_seen.append(label)
-        b["groups"].append(el)
-        b["shapes"] += shapes
+        b["shapes"] += 1
 
     if not buckets:
         return []
 
     # Order: pen_order labels first (matched by name), then leftovers as seen.
     ordered_labels: list[str] = []
-    for name, _colour in pen_order or []:
+    for name, _colour in pen_order:
         if name in buckets and name not in ordered_labels:
             ordered_labels.append(name)
     for label in order_seen:
@@ -211,37 +281,26 @@ def split_svg_by_pen(svg_bytes, pen_order):
 
     ET.register_namespace("", _SVG_URI)
     ET.register_namespace("inkscape", _INK_URI)
-    root_attrs = (
-        f'width="{root.get("width", "")}" height="{root.get("height", "")}" '
-        f'viewBox="{root.get("viewBox") or root.get("viewbox") or ""}"'
-    )
 
+    # Pass 2 — emit: one whole-document copy per pen with other pens' drawables
+    # removed. Serializing the whole root keeps transforms / defs / clip refs.
     out = []
     for label in ordered_labels:
-        b = buckets[label]
-        body = []
-        for group in b["groups"]:
-            wrapped = copy.deepcopy(group)
-            # Re-wrap in each transform-bearing ancestor (root → group) so the
-            # composition layer's placement/scale is preserved.
-            node = parent.get(group)
-            chain = []
-            while node is not None and node is not root:
-                if _local(node.tag) == "g" and node.get("transform"):
-                    chain.append(node.get("transform"))
-                node = parent.get(node)
-            inner = ET.tostring(wrapped, encoding="unicode")
-            for tf in chain:  # innermost ancestor first → wrap outward
-                inner = f'<g transform="{tf}">{inner}</g>'
-            body.append(inner)
-        svg = (
-            f'<svg {_SVG_NS} {root_attrs}>\n' + "\n".join(body) + "\n</svg>"
-        )
+        dup = copy.deepcopy(root)
+        dparent = {child: el for el in dup.iter() for child in el}
+        for el in list(dup.iter()):
+            assigned = el.get(_ASSIGN_ATTR)
+            if assigned is not None and assigned != label:
+                p = dparent.get(el)
+                if p is not None:
+                    p.remove(el)
+        for el in dup.iter():
+            el.attrib.pop(_ASSIGN_ATTR, None)
         out.append({
             "name": label,
-            "colour": b["colour"],
-            "shapes": b["shapes"],
-            "svg": svg,
+            "colour": buckets[label]["colour"],
+            "shapes": buckets[label]["shapes"],
+            "svg": ET.tostring(dup, encoding="unicode"),
         })
     return out
 

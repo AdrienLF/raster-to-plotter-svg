@@ -2009,12 +2009,15 @@ def plot_preview_paths():
         settings = cfg.copy()
         split = _split_svg_pens(_current_svg)
         # Mirror _create_plot_job exactly: only a >1-pen drawing plots per pen.
-        # A single-pen (or unlabelled, e.g. masked/cavalry) drawing plots the
-        # whole composed SVG — where crop/mask are already baked into geometry —
-        # so preview geometry matches what actually plots.
+        # A single-pen drawing plots the whole composed SVG — where crop/mask are
+        # already baked into geometry — so preview geometry matches what actually
+        # plots. Report the matched pen's name/colour (not a synthetic 'Pen') so
+        # the emulator legend shows the real pen.
         if len(split) > 1:
             entries = [(p['name'], p['colour'], p['svg'].encode('utf-8'))
                        for p in split]
+        elif split:
+            entries = [(split[0]['name'], split[0]['colour'], _current_svg)]
         else:
             entries = [('Pen', '#000000', _current_svg)]
         pens = []

@@ -41,6 +41,7 @@ A running list of what this software does. One line each. Updated on every commi
 - **Drawing Area** — Page size, units, orientation, padding, scaling mode, pen-width rescaling.
 - **Drawing Sets (pens)** — Multi-pen sets with colour and per-pen size in mm (stroke width), edited in the Pens panel and reflected in the preview's stroke; items distributed across pens. Pen library presets.
 - **Flat-nib preview** — Mark a pen as a flat/chisel nib (e.g. Pilot Parallel) held at a fixed angle; the on-screen preview approximates the calligraphic mark — full width perpendicular to the nib, thinning to a hairline when travel runs parallel to it. Toggle the whole width/nib preview off in View ▸ Pen width & nib to draw every stroke as a uniform thin line (raw centerline geometry). Preview-only: the exported/plotted SVG stays a plain centerline (the physical nib makes its own width).
+- **Pen matching for imported/Cavalry layers** — Unlabelled `kind:"svg"` layers (raw Cavalry captures, no pen identity) preview and plot per pen: each stroke is colour-matched to the nearest enabled pen (nearest sRGB, effective stroke→fill→black), so it renders at that pen's colour/width, flows through flat-nib preview, and splits into per-pen plot passes and stats. Matching is done live at preview/split time (never baked into the layer), so editing a pen re-matches immediately; existing `inkscape:label`s always win. Fixes multi-pen plots silently dropping masked/Cavalry geometry.
 
 ## Viewport
 - **Pan / zoom / fit** — Wheel zoom, drag pan, one-shot auto-fit, Fit button.

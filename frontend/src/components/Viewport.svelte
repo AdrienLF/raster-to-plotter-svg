@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from "../lib/api";
-  import { renderFlatNibPreview } from "../lib/flatNib";
+  import { renderFlatNibPreview, penMatchSvg } from "../lib/flatNib";
   import {
     A4_PORTRAIT,
     alignPlacement,
@@ -344,23 +344,39 @@
   // pan/zoom just composites a bitmap (GPU) instead of re-painting every path per
   // frame. Resolution is the layout size; zooming in blurs like any raster — the
   // explicit trade for a usable viewport.
+  // penMatchSvg (offscreen DOM + curve sampling) and renderFlatNibPreview are
+  // expensive on dense Cavalry layers, and layerPathsUrl re-runs on every render
+  // (pan/zoom included). Memoize the built data-URL per layer, keyed by the only
+  // inputs that change it — recompute only when svg / pens / toggle actually move.
+  const pathsUrlCache = new Map<string, { key: string; url: string }>();
+
   function layerPathsUrl(layer: CompositionLayerT) {
-    // Flat-nib preview is client-only and never written back — see lib/flatNib.
-    // Only engine-generated layers emit the plain "M x,y L x,y" centerlines the
-    // outline math expects, so skip arbitrary imported kind:"svg" content.
+    // Pen preview is client-only and never written back — see lib/flatNib.
     const pens = studio.drawingSet?.pens ?? [];
+    const penSig = pens
+      .map((p) => `${p.enabled ? 1 : 0}:${p.name}:${p.colour}:${p.stroke_mm}:${p.nib_shape}:${p.start_angle_deg}`)
+      .join("|");
+    const key = `${studio.showPenPreview ? 1 : 0}|${layer.kind}|${penSig}|${layer.svg}`;
+    const hit = pathsUrlCache.get(layer.id);
+    if (hit && hit.key === key) return hit.url;
+
     let svg = layer.svg;
     if (!studio.showPenPreview) {
       // Preview off (View ▸ Pen width & nib): ignore pen width and nib shape,
       // draw every stroke as a uniform thin line so the raw geometry reads
       // clearly. 0.2mm ≈ 0.5px at PX_PER_MM.
       svg = svg.replace(/stroke-width="[^"]*"/g, 'stroke-width="0.2"');
-    } else if (layer.kind !== "svg" && pens.some((p) => p.enabled && p.nib_shape === "flat")) {
-      svg = renderFlatNibPreview(layer.svg, pens);
+    } else {
+      // Unlabelled Cavalry (kind:"svg") carries no pen identity — colour-match
+      // it to pens first so it renders (and flat-nibs) like generator output.
+      if (layer.kind === "svg") svg = penMatchSvg(svg, pens);
+      if (pens.some((p) => p.enabled && p.nib_shape === "flat")) {
+        svg = renderFlatNibPreview(svg, pens);
+      }
     }
-    // ponytail: parse-per-render is fine gated behind a flat pen; memoize by
-    // (layer.svg, pens) only if dense flat drawings measurably lag.
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    pathsUrlCache.set(layer.id, { key, url });
+    return url;
   }
 
   // ── Mask drawing ──────────────────────────────────────────────────────────

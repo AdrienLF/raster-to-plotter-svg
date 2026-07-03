@@ -63,6 +63,78 @@ class SplitSvgByPenTest(unittest.TestCase):
         self.assertEqual(svg_io.split_svg_by_pen(plain, []), [])
 
 
+# Cavalry-style: raw unlabelled markup inside a scale() wrap, px coords, stroke
+# colours near (not equal to) the pen palette, plus one clip-path'd path + defs.
+CAVALRY_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" '
+    'viewBox="0 0 100 100">'
+    '<defs><clipPath id="half"><rect x="0" y="0" width="50" height="1000"/></clipPath></defs>'
+    '<g transform="scale(0.5)">'
+    '<path d="M0,0 L200,0" stroke="#c81e12"/>'          # near Red, unclipped
+    '<path d="M0,40 L200,40" stroke="#000000"/>'        # Black
+    '<g clip-path="url(#half)"><path d="M0,80 L200,80" stroke="#c81e12"/></g>'  # near Red, clipped
+    '</g></svg>'
+).encode()
+
+# Labelled Black group + an unlabelled near-black stroke (masked-layer style).
+MIXED_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" '
+    'viewBox="0 0 100 100">'
+    '<g xmlns:ns0="http://www.inkscape.org/namespaces/inkscape" '
+    'ns0:label="Black" fill="none" stroke="#000000"><path d="M0,0 L10,0"/></g>'
+    '<path d="M0,5 L10,5" stroke="#0a0a0a"/>'
+    '</svg>'
+).encode()
+
+CAVALRY_PENS = [("Black", "#000000"), ("Red", "#c0392b")]
+
+
+class CavalrySplitTest(unittest.TestCase):
+    def test_unlabelled_matches_nearest_pen_by_colour(self):
+        parts = svg_io.split_svg_by_pen(CAVALRY_SVG, CAVALRY_PENS)
+        self.assertEqual([p["name"] for p in parts], ["Black", "Red"])  # pen order
+        by_name = {p["name"]: p for p in parts}
+        self.assertEqual(by_name["Black"]["shapes"], 1)
+        self.assertEqual(by_name["Red"]["shapes"], 2)  # unclipped + clipped
+
+    def test_split_partitions_whole_drawing(self):
+        settings = {"reordering": "none"}
+        whole = server.svg_to_polylines(CAVALRY_SVG, settings, respect_stop=False)
+        parts = svg_io.split_svg_by_pen(CAVALRY_SVG, CAVALRY_PENS)
+        split_total = sum(
+            len(server.svg_to_polylines(p["svg"].encode(), settings, respect_stop=False))
+            for p in parts
+        )
+        self.assertEqual(split_total, len(whole))
+
+    def test_clipped_path_stays_clipped_in_its_pen(self):
+        settings = {"reordering": "none"}
+        parts = svg_io.split_svg_by_pen(CAVALRY_SVG, CAVALRY_PENS)
+        red = next(p for p in parts if p["name"] == "Red")
+        polys = server.svg_to_polylines(red["svg"].encode(), settings, respect_stop=False)
+        # clip rect (width 50) keeps the clipped red run to x<=50mm; the
+        # unclipped red run reaches the full 100mm — one poly per run.
+        spans = sorted((min(x for x, _ in p), max(x for x, _ in p)) for p in polys)
+        self.assertEqual(len(spans), 2)
+        self.assertAlmostEqual(spans[0][1], 50, delta=0.6)   # clipped run ends at ~50mm
+        self.assertAlmostEqual(spans[1][1], 100, delta=0.6)  # unclipped run full width
+
+    def test_mixed_labelled_and_unlabelled_join_one_bucket(self):
+        parts = svg_io.split_svg_by_pen(MIXED_SVG, [("Black", "#000000"), ("Blue", "#0000ff")])
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0]["name"], "Black")
+        self.assertEqual(parts[0]["shapes"], 2)  # labelled + unlabelled, not dropped
+
+    def test_filled_no_stroke_shape_matches_by_fill(self):
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" '
+            'viewBox="0 0 100 100">'
+            '<rect x="0" y="0" width="10" height="10" fill="#050505"/></svg>'
+        ).encode()
+        parts = svg_io.split_svg_by_pen(svg, CAVALRY_PENS)
+        self.assertEqual([p["name"] for p in parts], ["Black"])  # nearest to fill
+
+
 class MultiPenJobTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

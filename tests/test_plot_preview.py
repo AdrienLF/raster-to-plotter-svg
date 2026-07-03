@@ -101,6 +101,40 @@ class PlotPreviewTest(unittest.TestCase):
         self.assertEqual(len(pens), 1)
         self.assertEqual(len(pens[0]["paths"]), 2)
 
+    def test_single_pen_fallback_reports_matched_pen(self):
+        # SIMPLE_SVG is unlabelled; one enabled pen → matched, whole-SVG plot,
+        # but the entry reports the real pen name/colour (not synthetic 'Pen').
+        server._project.drawing_set = DrawingSet(pens=[Pen(name="Red", colour="#c0392b")])
+
+        response = self.client.get("/api/plot/preview-paths")
+
+        self.assertEqual(response.status_code, 200)
+        pens = response.get_json()["pens"]
+        self.assertEqual(len(pens), 1)
+        self.assertEqual(pens[0]["name"], "Red")
+        self.assertEqual(pens[0]["colour"], "#c0392b")
+
+    def test_unlabelled_two_colour_splits_by_nearest_pen(self):
+        server._current_svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" '
+            'viewBox="0 0 100 100">'
+            '<path d="M0,0 L10,0" stroke="#0a0a0a"/>'   # near Black
+            '<path d="M0,5 L10,5" stroke="#c81e12"/>'   # near Red
+            '</svg>'
+        ).encode()
+        server._project.drawing_set = DrawingSet(pens=[
+            Pen(name="Black", colour="#000000"),
+            Pen(name="Red", colour="#c0392b"),
+        ])
+
+        response = self.client.get("/api/plot/preview-paths")
+
+        self.assertEqual(response.status_code, 200)
+        pens = response.get_json()["pens"]
+        self.assertEqual([p["name"] for p in pens], ["Black", "Red"])
+        self.assertEqual(len(pens[0]["paths"]), 1)
+        self.assertEqual(len(pens[1]["paths"]), 1)
+
     def test_multipen_splits_in_pen_order(self):
         server._current_svg = TWO_PEN_SVG
         server._project.drawing_set = DrawingSet(pens=[

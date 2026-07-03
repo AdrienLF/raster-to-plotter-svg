@@ -169,3 +169,191 @@ export function renderFlatNibPreview(svg: string, pens: Pen[]): string {
     return svg;
   }
 }
+
+// ── Colour → pen matching for unlabelled (Cavalry) layers ────────────────────
+// Raw live-bridged Cavalry SVG carries no pen identity — arbitrary markup with
+// stroke colours inside a scale(k) wrap. penMatchSvg rebuilds it as
+// generator-style pen groups (one <g inkscape:label> per matched pen) so every
+// downstream preview path — including renderFlatNibPreview — works unchanged.
+// Preview-only, never written back to layer.svg (same contract as above).
+
+/** [r,g,b] from "#rgb"/"#rrggbb"/"rgb(r,g,b)"; unparseable → black. */
+function parseColour(c: string): [number, number, number] {
+  if (!c) return [0, 0, 0];
+  const s = c.trim();
+  const m = s.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  if (m) return [+m[1], +m[2], +m[3]];
+  let h = s.replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+  if (/^[0-9a-f]{6}$/i.test(h.slice(0, 6))) {
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  return [0, 0, 0];
+}
+
+/** Enabled pen nearest `colour` by sRGB euclidean distance; null if list empty. */
+export function nearestPen(colour: string, enabledPens: Pen[]): Pen | null {
+  if (enabledPens.length === 0) return null;
+  const [r, g, b] = parseColour(colour);
+  let best: Pen | null = null;
+  let bestD = Infinity;
+  for (const p of enabledPens) {
+    const [pr, pg, pb] = parseColour(p.colour);
+    const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  }
+  return best;
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+function anyInkscapeLabel(doc: Document): boolean {
+  const all = doc.getElementsByTagName("*");
+  for (let i = 0; i < all.length; i++) {
+    if (inkscapeAttr(all[i], "label")) return true;
+  }
+  return false;
+}
+
+const SKIP_TAGS = new Set(["defs", "clippath", "mask", "symbol", "marker"]);
+
+function underSkip(el: Element): boolean {
+  let n = el.parentElement;
+  while (n) {
+    if (SKIP_TAGS.has(n.tagName.toLowerCase())) return true;
+    n = n.parentElement;
+  }
+  return false;
+}
+
+/** Own/inherited stroke (ignoring "none"), else fill, else black. */
+function effectiveColour(el: Element): string {
+  const cs = getComputedStyle(el);
+  let c = cs.stroke;
+  if (!c || c === "none") c = cs.fill;
+  if (!c || c === "none") c = "rgb(0,0,0)";
+  return c;
+}
+
+/**
+ * Flatten one geometry element to a page-mm polyline. Root user units are mm
+ * (the composition's mm viewBox), so the element→viewport CTM maps local coords
+ * straight to page mm — handling the scale(k) wrap and Cavalry leaf transforms
+ * natively. Pure M/L paths map vertices directly (no oversampling of straight
+ * runs); anything with curves samples getPointAtLength at ~0.4mm page steps
+ * (matches engine/layer_clip.py _STEP_MM), capped at 4096 samples.
+ */
+function flattenToPageMm(el: SVGGeometryElement, ctm: DOMMatrix): [number, number][] {
+  const map = (x: number, y: number): [number, number] => [
+    ctm.a * x + ctm.c * y + ctm.e,
+    ctm.b * x + ctm.d * y + ctm.f,
+  ];
+  if (el.tagName.toLowerCase() === "path") {
+    const d = el.getAttribute("d") || "";
+    if (!/[csqtaCSQTA]/.test(d)) {
+      const pts = parseCenterline(d).map(([x, y]) => map(x, y));
+      if (pts.length >= 2) return pts;
+    }
+  }
+  const local = el.getTotalLength();
+  if (!(local > 0)) return [];
+  const scale = Math.hypot(ctm.a, ctm.b) || 1; // local→page units
+  const n = Math.min(4096, Math.max(2, Math.ceil((local * scale) / 0.4)));
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const pt = el.getPointAtLength((i / n) * local);
+    out.push(map(pt.x, pt.y));
+  }
+  return out;
+}
+
+/**
+ * Rebuild an unlabelled (Cavalry) layer SVG as generator-style pen groups by
+ * matching each stroke's effective colour to the nearest enabled pen. Needs a
+ * live DOM (geometry APIs), so it attaches an offscreen copy briefly. Labelled
+ * docs are returned unchanged (labels win, mirrors the server split). Fails
+ * safe: any error returns `svg` unchanged.
+ */
+export function penMatchSvg(svg: string, pens: Pen[]): string {
+  try {
+    const enabled = pens.filter((p) => p.enabled);
+    if (enabled.length === 0) return svg;
+
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    if (doc.getElementsByTagName("parsererror").length > 0) return svg;
+    if (anyInkscapeLabel(doc)) return svg; // labels win
+
+    const imported = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+    const host = document.createElement("div");
+    host.style.cssText =
+      "position:absolute;left:-99999px;top:0;width:0;height:0;overflow:hidden;visibility:hidden";
+    host.appendChild(imported);
+    document.body.appendChild(host);
+
+    const byPen = new Map<string, [number, number][][]>();
+    try {
+      // el.getCTM() reports the viewport CTM in CSS px (includes the mm→px unit
+      // scale), which would emit geometry ~3.78× oversized. Map to the root's
+      // *viewBox* user units instead: svgScreenCTM⁻¹ · elScreenCTM — unit- and
+      // pan-agnostic (the inverse cancels px scaling and absolute offset).
+      const svgScreen = imported.getScreenCTM();
+      if (!svgScreen) return svg;
+      const svgInv = svgScreen.inverse();
+      const geoms = imported.querySelectorAll<SVGGeometryElement>(
+        "path, circle, ellipse, rect, line, polyline, polygon",
+      );
+      for (const el of Array.from(geoms)) {
+        if (underSkip(el)) continue;
+        if (typeof el.getTotalLength !== "function") continue;
+        const es = el.getScreenCTM();
+        if (!es) continue;
+        const ctm = svgInv.multiply(es);
+        const pen = nearestPen(effectiveColour(el), enabled);
+        if (!pen) continue;
+        const poly = flattenToPageMm(el, ctm);
+        if (poly.length < 2) continue;
+        let arr = byPen.get(pen.name);
+        if (!arr) {
+          arr = [];
+          byPen.set(pen.name, arr);
+        }
+        arr.push(poly);
+      }
+    } finally {
+      document.body.removeChild(host);
+    }
+
+    if (byPen.size === 0) return svg;
+
+    const penByName = new Map(enabled.map((p) => [p.name, p]));
+    const w = imported.getAttribute("width") ?? "";
+    const h = imported.getAttribute("height") ?? "";
+    const vb = imported.getAttribute("viewBox") ?? "";
+    const groups: string[] = [];
+    for (const [name, polys] of byPen) {
+      const pen = penByName.get(name)!;
+      const paths = polys
+        .map(
+          (poly) =>
+            `<path d="${poly.map(([x, y], i) => (i ? "L" : "M") + fmt(x) + "," + fmt(y)).join(" ")}"/>`,
+        )
+        .join("");
+      groups.push(
+        `<g inkscape:groupmode="layer" inkscape:label="${escapeAttr(name)}" fill="none" ` +
+          `stroke="${pen.colour}" stroke-width="${fmt(pen.stroke_mm)}" ` +
+          `stroke-linecap="round" stroke-linejoin="round">${paths}</g>`,
+      );
+    }
+    return (
+      `<svg xmlns="${SVG_NS}" xmlns:inkscape="${INKSCAPE_NS}" ` +
+      `width="${w}" height="${h}" viewBox="${vb}">${groups.join("")}</svg>`
+    );
+  } catch {
+    return svg;
+  }
+}
