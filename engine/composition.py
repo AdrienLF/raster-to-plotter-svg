@@ -136,6 +136,7 @@ class CompositionLayer:
     region_id: str | None = None
     display_mode: str = "pathfinding"
     occlude_below: bool = False
+    occlusion_mode: str = "mask"  # "mask" (outline polygon) | "strokes" (exact HLR)
     pathfinding_style: dict = field(default_factory=dict)
     occlusion_mask: dict | None = None
 
@@ -157,6 +158,7 @@ class CompositionLayer:
             "region_id": self.region_id,
             "display_mode": self.display_mode,
             "occlude_below": self.occlude_below,
+            "occlusion_mode": self.occlusion_mode,
             "pathfinding_style": self.pathfinding_style,
             "occlusion_mask": self.occlusion_mask,
         }
@@ -184,6 +186,7 @@ class CompositionLayer:
             region_id=data.get("region_id") or None,
             display_mode=str(data.get("display_mode") or "pathfinding"),
             occlude_below=bool(data.get("occlude_below", False)),
+            occlusion_mode=("strokes" if data.get("occlusion_mode") == "strokes" else "mask"),
             pathfinding_style=dict(data.get("pathfinding_style") or {}),
             occlusion_mask=data.get("occlusion_mask") or None,
         )
@@ -371,16 +374,129 @@ def _mask_to_layer(layer: CompositionLayer, upper: CompositionLayer, mask: dict)
     return None
 
 
-def _upper_occlusion_masks(visible: list[CompositionLayer], index: int) -> list[dict]:
+def _upper_occlusion_masks(
+    visible: list[CompositionLayer], index: int, skip_strokes: bool = False
+) -> list[dict]:
     masks: list[dict] = []
     layer = visible[index]
     for upper in visible[index + 1:]:
         if not upper.occlude_below or not upper.occlusion_mask:
             continue
+        if skip_strokes and upper.occlusion_mode == "strokes":
+            continue  # handled by the stroke-level HLR pre-pass
         mapped = _mask_to_layer(layer, upper, upper.occlusion_mask)
         if mapped:
             masks.append(mapped)
     return masks
+
+
+# Stroke-level HLR is heavy (shapely buffers/unions over every stroke), and
+# compose runs on every layer tweak — cache baked bodies by the stack state.
+_HLR_CACHE: dict[str, dict[str, str]] = {}
+_HLR_CACHE_MAX = 4
+
+
+def _hlr_stack_key(visible: list[CompositionLayer]) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    for layer in visible:
+        state = {
+            "id": layer.id,
+            "x": layer.x,
+            "y": layer.y,
+            "scale": layer.scale,
+            "crop": layer.crop,
+            "mask": layer.mask,
+            "occlude": layer.occlude_below,
+            "mode": layer.occlusion_mode,
+            "svg": hashlib.sha256(layer.svg.encode("utf-8")).hexdigest(),
+        }
+        h.update(json.dumps(state, sort_keys=True).encode("utf-8"))
+    return h.hexdigest()
+
+
+def _strokes_occlusion_bodies(visible: list[CompositionLayer]) -> dict[str, str]:
+    """Run stroke-level HLR when any visible layer occludes in "strokes" mode.
+
+    Returns ``{layer_id: baked_svg_body}`` for every layer whose geometry was
+    clipped by a nearer strokes-mode occluder. Empty dict when the pass does
+    not apply (no strokes occluder, or shapely unavailable — callers then fall
+    back to the outline-mask occlusion path).
+    """
+    from . import hlr
+
+    occluders = [
+        layer for layer in visible
+        if layer.occlude_below and layer.occlusion_mode == "strokes"
+    ]
+    if not occluders or not hlr.available():
+        return {}
+    key = _hlr_stack_key(visible)
+    cached = _HLR_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    from . import layer_clip
+
+    ordered = list(reversed(visible))            # near (top of stack) first
+    first = min(ordered.index(layer) for layer in occluders)
+    participating = ordered[first:]
+
+    entries = []        # hlr.occlude_stack input, parallel to `participating`
+    attrs_per_layer = []
+    for layer in participating:
+        s = float(layer.scale or 1)
+        flat = layer_clip.flattened_clipped_polylines(layer.svg, layer.crop, layer.mask)
+        # Outline-mask occluders above this layer still apply (mixed stacks).
+        index = visible.index(layer)
+        exclude_polys = [
+            layer_clip.mask_polygon(m)
+            for m in _upper_occlusion_masks(visible, index, skip_strokes=True)
+        ]
+        pieces: list[tuple[list, str, float]] = []
+        for pts, attrs, width_mm in flat:
+            subs = [pts]
+            for poly in exclude_polys:
+                if not poly:
+                    continue
+                subs = [
+                    out_pl
+                    for pl in subs
+                    for out_pl in layer_clip._clip_polyline_outside_polygon(pl, poly)
+                ]
+            for pl in subs:
+                if len(pl) >= 2:
+                    pieces.append((pl, attrs, width_mm))
+        entries.append({
+            "polylines": [
+                [(layer.x + s * px, layer.y + s * py) for px, py in pl]
+                for pl, _attrs, _w in pieces
+            ],
+            # The layer transform scales rendered stroke widths too.
+            "widths": [w * s for _pl, _attrs, w in pieces],
+            "occludes": layer in occluders,
+        })
+        attrs_per_layer.append([attrs for _pl, attrs, _w in pieces])
+
+    clipped = hlr.occlude_stack(entries)
+
+    baked: dict[str, str] = {}
+    for layer, layer_pieces, attrs_list in zip(participating[1:], clipped[1:],
+                                               attrs_per_layer[1:]):
+        # participating[0] is the nearest occluder: nothing above clips it, so
+        # it keeps its normal (unbaked) emission path.
+        s = float(layer.scale or 1)
+        out = []
+        for pts, src_index in layer_pieces:
+            local = [((x - layer.x) / s, (y - layer.y) / s) for x, y in pts]
+            out.append(layer_clip.polyline_path_el(local, attrs_list[src_index]))
+        baked[layer.id] = "\n".join(out)
+
+    if len(_HLR_CACHE) >= _HLR_CACHE_MAX:
+        _HLR_CACHE.pop(next(iter(_HLR_CACHE)))
+    _HLR_CACHE[key] = baked
+    return baked
 
 
 def compose_visible_svg(comp: Composition, on_progress=None) -> str:
@@ -393,14 +509,20 @@ def compose_visible_svg(comp: Composition, on_progress=None) -> str:
     body = []
     visible = [layer for layer in comp.layers if layer.visible]
     total = len(visible)
+    baked = _strokes_occlusion_bodies(visible)
     for index, layer in enumerate(visible):
         if on_progress:
             on_progress(index, total)
-        exclude_masks = _upper_occlusion_masks(visible, index)
+        if layer.id in baked:
+            layer_body = baked[layer.id]
+        else:
+            exclude_masks = _upper_occlusion_masks(visible, index,
+                                                   skip_strokes=bool(baked))
+            layer_body = _layer_body(layer, exclude_masks)
         body.append(
             f'<g data-layer-id="{_attr(layer.id)}" data-layer-name="{_attr(layer.name)}" '
             f'transform="{_layer_transform(layer)}">'
-            f"{_layer_body(layer, exclude_masks)}</g>"
+            f"{layer_body}</g>"
         )
     if on_progress:
         on_progress(total, total)

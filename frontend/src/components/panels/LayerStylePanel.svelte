@@ -145,10 +145,13 @@
     await api.patchLayer(layer.id, { display_mode });
   }
 
-  async function setOcclusion(occlude_below: boolean) {
+  async function setOcclusion(value: string) {
     if (!layer) return;
+    const occlude_below = value !== "off";
+    const occlusion_mode = value === "strokes" ? "strokes" : "mask";
     layer.occlude_below = occlude_below;
-    await api.patchLayer(layer.id, { occlude_below });
+    layer.occlusion_mode = occlusion_mode;
+    await api.patchLayer(layer.id, { occlude_below, occlusion_mode });
   }
 
   async function patchStyle(patch: Record<string, any>) {
@@ -280,13 +283,17 @@
           <em class:dirty={style.status === "stale"}>{style.status}</em>
         </label>
 
-        <label class="check">
-          <input
-            type="checkbox"
-            checked={layer.occlude_below}
-            onchange={(e) => setOcclusion((e.target as HTMLInputElement).checked)}
-          />
+        <label>
           <span>Occlude below</span>
+          <select
+            value={!layer.occlude_below ? "off" : layer.occlusion_mode === "strokes" ? "strokes" : "mask"}
+            onchange={(e) => setOcclusion((e.target as HTMLSelectElement).value)}
+            title="Hide lower layers behind this one: Silhouette clips by the region outline; Strokes erases exactly where this layer's lines pass (with a small halo)"
+          >
+            <option value="off">Off</option>
+            <option value="mask">Silhouette</option>
+            <option value="strokes">Strokes</option>
+          </select>
         </label>
 
         <label>

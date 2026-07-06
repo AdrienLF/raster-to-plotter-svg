@@ -2153,6 +2153,8 @@ def api_composition_layer(layer_id):
             return jsonify(error=str(exc)), 400
     if 'occlude_below' in data:
         layer.occlude_below = bool(data.get('occlude_below'))
+    if 'occlusion_mode' in data:
+        layer.occlusion_mode = 'strokes' if data.get('occlusion_mode') == 'strokes' else 'mask'
     if 'occlusion_mask' in data:
         layer.occlusion_mask = _validate_mask(data['occlusion_mask'])
     if 'pathfinding_style' in data:

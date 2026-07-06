@@ -144,6 +144,7 @@ export interface CompositionLayerT {
   region_id?: string | null;
   display_mode: LayerDisplayMode;
   occlude_below: boolean;
+  occlusion_mode?: "mask" | "strokes";
   pathfinding_style: PathfindingStyleT;
   occlusion_mask?: MaskShape | null;
 }
