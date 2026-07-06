@@ -236,7 +236,7 @@
   }
 
   function layerShowsRaster(layer: CompositionLayerT) {
-    return !!layer.region_id && (!layer.pathfinding_style?.enabled || displayMode(layer) === "raster" || displayMode(layer) === "both");
+    return !layer.pathfinding_style?.enabled || displayMode(layer) === "raster" || displayMode(layer) === "both";
   }
 
   function layerShowsPaths(layer: CompositionLayerT) {

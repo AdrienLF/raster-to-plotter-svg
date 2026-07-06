@@ -18,16 +18,26 @@ _SKETCH_PARAMS = [
           help="Working-image scale; lower = faster, coarser"),
     Param("line_density", "float", 50.0, group="Segments", min=0, max=100,
           help="How much of the image's ink to lay down (drives when it stops)"),
-    Param("line_min_length", "int", 6, group="Segments", min=2, max=500),
-    Param("line_max_length", "int", 30, group="Segments", min=2, max=500),
-    Param("line_max_limit", "int", -1, group="Segments", min=-1, max=1_000_000),
-    Param("angle_tests", "int", 24, group="Segments", min=1, max=360),
-    Param("drawing_delta_angle", "angle", 360.0, group="Style", min=-360, max=360),
-    Param("directionality", "float", 0.0, group="Style", min=0, max=100),
-    Param("squiggle_min_length", "int", 0, group="Squiggles", min=0, max=5000),
-    Param("squiggle_max_length", "int", 300, group="Squiggles", min=0, max=5000),
-    Param("squiggle_max_deviation", "float", 25.0, group="Squiggles", min=0, max=100),
-    Param("erase_max", "int", 130, group="Erasing", min=0, max=255),
+    Param("line_min_length", "int", 6, group="Segments", min=2, max=500,
+          help="Shortest a single segment can be"),
+    Param("line_max_length", "int", 30, group="Segments", min=2, max=500,
+          help="Longest a single segment can be"),
+    Param("line_max_limit", "int", -1, group="Segments", min=-1, max=1_000_000,
+          help="Hard cap on total segments (-1 = no limit)"),
+    Param("angle_tests", "int", 24, group="Segments", min=1, max=360,
+          help="Candidate directions checked at each step; more = smoother line-following, slower"),
+    Param("drawing_delta_angle", "angle", 360.0, group="Style", min=-360, max=360,
+          help="How far the next segment may turn from the previous one (360 = any direction)"),
+    Param("directionality", "float", 0.0, group="Style", min=0, max=100,
+          help="Bias toward continuing straight instead of always chasing the darkest direction"),
+    Param("squiggle_min_length", "int", 0, group="Squiggles", min=0, max=5000,
+          help="Minimum segments before a squiggle is allowed to end"),
+    Param("squiggle_max_length", "int", 300, group="Squiggles", min=0, max=5000,
+          help="Maximum segments in one continuous squiggle before lifting the pen"),
+    Param("squiggle_max_deviation", "float", 25.0, group="Squiggles", min=0, max=100,
+          help="How much lighter the path can get before the squiggle is allowed to end early"),
+    Param("erase_max", "int", 130, group="Erasing", min=0, max=255,
+          help="Ink removed per segment drawn; higher clears an area in fewer passes"),
 ]
 
 
@@ -45,7 +55,8 @@ register(PFM(
 register(PFM(
     id="sketch_curves", name="Sketch Curves", family="sketch", style="curves",
     params=SEED + _SKETCH_PARAMS + [
-        Param("curve_tension", "float", 0.5, group="Curves", min=0.01, max=1.0),
+        Param("curve_tension", "float", 0.5, group="Curves", min=0.01, max=1.0,
+              help="How tightly curves hug the original squiggle points (lower = looser, smoother curves)"),
     ],
     generate=_make("curves"),
 ))
@@ -53,7 +64,8 @@ register(PFM(
 register(PFM(
     id="sketch_squares", name="Sketch Squares", family="sketch", style="squares",
     params=SEED + _SKETCH_PARAMS + [
-        Param("start_angle", "angle", 0.0, group="Squares", min=-360, max=360),
+        Param("start_angle", "angle", 0.0, group="Squares", min=-360, max=360,
+              help="Rotate the grid of candidate directions"),
     ],
     generate=_make("squares"),
 ))

@@ -63,22 +63,19 @@
     dither: "Dither",
     packing: "Packing",
   };
-  // Only the sampler-family x style matrix names as "{Family} {Style}" —
-  // strip the redundant family prefix since the optgroup already shows it.
-  const PFM_SAMPLER_FAMILIES = new Set(["voronoi", "lbg", "adaptive", "poisson"]);
-
   // studio.pfms is already grouped contiguously by family (registration
   // order in engine/pfm/__init__.py), so a single pass is enough.
+  // Keep each option's full name (e.g. "Voronoi Stippling") rather than
+  // stripping the family prefix — a closed <select> only ever echoes the
+  // chosen <option>'s own text, never the optgroup label, so trimming it
+  // there left no way to tell which family was selected once closed.
   const pfmGroups = $derived.by(() => {
     const out: { label: string; items: { id: string; label: string }[] }[] = [];
     for (const pfm of studio.pfms) {
       const label = PFM_FAMILY_LABELS[pfm.family] ?? pfm.family;
-      const optionLabel = PFM_SAMPLER_FAMILIES.has(pfm.family)
-        ? pfm.name.slice(label.length).trim()
-        : pfm.name;
       const last = out[out.length - 1];
-      if (last?.label === label) last.items.push({ id: pfm.id, label: optionLabel });
-      else out.push({ label, items: [{ id: pfm.id, label: optionLabel }] });
+      if (last?.label === label) last.items.push({ id: pfm.id, label: pfm.name });
+      else out.push({ label, items: [{ id: pfm.id, label: pfm.name }] });
     }
     return out;
   });

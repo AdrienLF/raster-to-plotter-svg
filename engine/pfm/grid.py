@@ -70,9 +70,12 @@ register(PFM(
     family="grid",
     style="grid",
     params=SEED + [
-        Param("grid_spacing", "int", 8, group="Grid", min=2, max=60),
-        Param("min_radius", "float", 0.3, group="Grid", min=0, max=15),
-        Param("max_radius", "float", 3.0, group="Grid", min=0.5, max=20),
+        Param("grid_spacing", "int", 8, group="Grid", min=2, max=60,
+              help="Size of each grid cell in pixels; smaller = more, finer dots"),
+        Param("min_radius", "float", 0.3, group="Grid", min=0, max=15,
+              help="Dot radius in the lightest cells"),
+        Param("max_radius", "float", 3.0, group="Grid", min=0.5, max=20,
+              help="Dot radius in the darkest cells"),
     ],
     generate=_grid_halftone,
 ))
@@ -83,9 +86,12 @@ register(PFM(
     family="grid",
     style="grid",
     params=SEED + [
-        Param("dot_count", "int", 8000, group="Grid", min=200, max=200_000),
-        Param("dot_radius", "float", 1.5, group="Grid", min=0.3, max=15),
-        Param("jitter", "float", 0.0, group="Grid", min=0, max=10),
+        Param("dot_count", "int", 8000, group="Grid", min=200, max=200_000,
+              help="Total number of dots to place"),
+        Param("dot_radius", "float", 1.5, group="Grid", min=0.3, max=15,
+              help="Radius of every dot"),
+        Param("jitter", "float", 0.0, group="Grid", min=0, max=10,
+              help="Random offset added to each dot's position"),
     ],
     generate=_random_stipple,
 ))

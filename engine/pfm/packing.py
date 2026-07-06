@@ -20,11 +20,14 @@ from .base import PFM, register
 from ._params import SEED
 
 _PACKING_PARAMS = [
-    Param("min_radius", "float", 1.0, group="Circle Packing", min=0.3, max=30),
-    Param("max_radius", "float", 8.0, group="Circle Packing", min=0.5, max=80),
+    Param("min_radius", "float", 1.0, group="Circle Packing", min=0.3, max=30,
+          help="Smallest circle radius allowed"),
+    Param("max_radius", "float", 8.0, group="Circle Packing", min=0.5, max=80,
+          help="Largest circle radius, used in the darkest, most open areas"),
     Param("attempts", "int", 8000, group="Circle Packing", min=100, max=200_000,
           help="Random placement attempts (more = denser packing, slower)"),
-    Param("ignore_white", "bool", True, group="Circle Packing"),
+    Param("ignore_white", "bool", True, group="Circle Packing",
+          help="Skip placing circles on near-white background"),
 ]
 
 

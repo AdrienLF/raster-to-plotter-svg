@@ -20,7 +20,8 @@ from ._params import SEED
 _DITHER_PARAMS = [
     Param("cell_size", "int", 4, group="Dither", min=1, max=40,
           help="Image pixels per potential dot"),
-    Param("dot_radius", "float", 2.0, group="Dither", min=0.2, max=20),
+    Param("dot_radius", "float", 2.0, group="Dither", min=0.2, max=20,
+          help="Radius of each placed dot"),
     Param("bias", "float", 0.0, group="Dither", min=-50, max=50,
           help="Shift overall darkness before thresholding (+ = more dots)"),
     Param("serpentine", "bool", True, group="Dither",

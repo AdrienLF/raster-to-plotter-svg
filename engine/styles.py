@@ -16,9 +16,14 @@ from .geometry import Dot, Geometry, Item
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 
-def _radius_px(weight: float, size: float) -> float:
-    """Map a darkness weight + a size param (1..100) to a working-pixel radius."""
-    return (size / 100.0) * (0.6 + weight * 1.4) * 3.0
+def _radius_px(weight: float, size_mm: float) -> float:
+    """Map a darkness weight + a size in mm to a working-pixel radius.
+
+    Working pixels are ~1 pen-width in mm (Area.working_resolution), so this
+    reads as roughly true millimeters once rendered. The darkest points get
+    the full size_mm radius; lighter points shrink down to 30% of it.
+    """
+    return size_mm * (0.3 + weight * 0.7)
 
 
 def _hilbert_order(xs: np.ndarray, ys: np.ndarray, order: int = 16) -> np.ndarray:
@@ -76,7 +81,7 @@ def _two_opt(path: np.ndarray, max_n: int = 800, passes: int = 2) -> np.ndarray:
 # ── styles ──────────────────────────────────────────────────────────────────────
 
 def stippling(sites, weights, p, bounds) -> list[Item]:
-    size = float(p.get("stipple_size", 30.0))
+    size = float(p.get("stipple_size", 0.9))
     items = []
     for (x, y), wgt in zip(sites, weights):
         r = max(0.3, _radius_px(float(wgt), size))
@@ -85,7 +90,7 @@ def stippling(sites, weights, p, bounds) -> list[Item]:
 
 
 def dashes(sites, weights, p, bounds) -> list[Item]:
-    size = float(p.get("stipple_size", 30.0))
+    size = float(p.get("stipple_size", 0.9))
     distortion = float(p.get("distortion", 0.0)) / 100.0
     rng = np.random.default_rng(0)
     items = []
@@ -145,7 +150,7 @@ def shapes(sites, weights, p, bounds) -> list[Item]:
     items = []
     for (x, y), wgt in zip(sites, weights):
         k = rng.choice(_SHAPE_TYPES) if kind == "random" else kind
-        r = max(0.4, _radius_px(float(wgt), 30.0) * size / 100.0)
+        r = max(0.4, _radius_px(float(wgt), 1.8) * size / 100.0)
         rot = 0.0 if align else rng.uniform(rot_min, rot_max) if rot_max != rot_min else rot_min
         g = Geometry(_shape_points(k, float(x), float(y), r, rot), closed=True)
         items.append(Item(lum=float(wgt), path=g))

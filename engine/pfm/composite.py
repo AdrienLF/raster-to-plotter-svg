@@ -90,9 +90,12 @@ def _mosaic_generate(work: Image.Image, v: dict, seed: int, bounds) -> list[Item
 register(PFM(
     id="layers", name="Layers", family="composite", style="layers",
     params=SEED + [
-        Param("layer_1", "enum", "random_stipple", group="Layers", choices=_LAYER_POOL),
-        Param("layer_2", "enum", "hatch", group="Layers", choices=_LAYER_POOL),
-        Param("layer_3", "enum", "none", group="Layers", choices=_LAYER_POOL),
+        Param("layer_1", "enum", "random_stipple", group="Layers", choices=_LAYER_POOL,
+              help="PFM to run as one layer over the whole image (none = skip)"),
+        Param("layer_2", "enum", "hatch", group="Layers", choices=_LAYER_POOL,
+              help="PFM to run as one layer over the whole image (none = skip)"),
+        Param("layer_3", "enum", "none", group="Layers", choices=_LAYER_POOL,
+              help="PFM to run as one layer over the whole image (none = skip)"),
     ],
     generate=_layers_generate,
 ))
@@ -100,12 +103,18 @@ register(PFM(
 register(PFM(
     id="mosaic_rectangles", name="Mosaic Rectangles", family="composite", style="mosaic",
     params=SEED + [
-        Param("columns", "int", 8, group="Tiles", min=1, max=64),
-        Param("rows", "int", 8, group="Tiles", min=1, max=64),
-        Param("padding", "float", 8.0, group="Tiles", min=0, max=100),
-        Param("style_a", "enum", "random_stipple", group="Tiles", choices=_TILE_POOL),
-        Param("style_b", "enum", "hatch", group="Tiles", choices=_TILE_POOL),
-        Param("draw_outlines", "bool", False, group="Tiles"),
+        Param("columns", "int", 8, group="Tiles", min=1, max=64,
+              help="Number of tile columns across the image"),
+        Param("rows", "int", 8, group="Tiles", min=1, max=64,
+              help="Number of tile rows down the image"),
+        Param("padding", "float", 8.0, group="Tiles", min=0, max=100,
+              help="Gap left between tiles, as a % of tile size"),
+        Param("style_a", "enum", "random_stipple", group="Tiles", choices=_TILE_POOL,
+              help="One of two PFMs randomly chosen for each tile"),
+        Param("style_b", "enum", "hatch", group="Tiles", choices=_TILE_POOL,
+              help="The other PFM randomly chosen for each tile"),
+        Param("draw_outlines", "bool", False, group="Tiles",
+              help="Draw a rectangle around each tile's border"),
     ],
     generate=_mosaic_generate,
 ))
