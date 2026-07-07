@@ -9,9 +9,9 @@ from . import spiral    # noqa: F401  registers spiral
 from . import hatch     # noqa: F401  registers hatch
 from . import sketch    # noqa: F401  registers sketch lines/curves/squares
 from . import streamline  # noqa: F401  registers streamline flow/edge/superformula
+from . import engrave     # noqa: F401  registers engraving (streamline family — keep adjacent)
 from . import composite   # noqa: F401  registers layers + mosaic rectangles
 from . import dither      # noqa: F401  registers Floyd-Steinberg dither halftone
 from . import packing     # noqa: F401  registers circle packing
-from . import engrave     # noqa: F401  registers engraving (field-driven streamlines)
 
 __all__ = ["PFM", "REGISTRY", "get", "list_pfms", "register"]

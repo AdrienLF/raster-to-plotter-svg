@@ -66,19 +66,26 @@
     dither: "Dither",
     packing: "Packing",
   };
-  // studio.pfms is already grouped contiguously by family (registration
-  // order in engine/pfm/__init__.py), so a single pass is enough.
+  // Group PFMs into optgroups by family label. Merge by label (not just
+  // contiguous runs): the optgroups are keyed by label, so a family whose
+  // modules register non-adjacently must still yield ONE group — duplicate
+  // keys crash the whole panel at runtime (svelte each_key_duplicate).
   // Keep each option's full name (e.g. "Voronoi Stippling") rather than
   // stripping the family prefix — a closed <select> only ever echoes the
   // chosen <option>'s own text, never the optgroup label, so trimming it
   // there left no way to tell which family was selected once closed.
   const pfmGroups = $derived.by(() => {
     const out: { label: string; items: { id: string; label: string }[] }[] = [];
+    const byLabel = new Map<string, { id: string; label: string }[]>();
     for (const pfm of studio.pfms) {
       const label = PFM_FAMILY_LABELS[pfm.family] ?? pfm.family;
-      const last = out[out.length - 1];
-      if (last?.label === label) last.items.push({ id: pfm.id, label: pfm.name });
-      else out.push({ label, items: [{ id: pfm.id, label: pfm.name }] });
+      let items = byLabel.get(label);
+      if (!items) {
+        items = [];
+        byLabel.set(label, items);
+        out.push({ label, items });
+      }
+      items.push({ id: pfm.id, label: pfm.name });
     }
     return out;
   });
