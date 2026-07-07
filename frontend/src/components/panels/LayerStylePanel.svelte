@@ -62,6 +62,7 @@
     composite: "Composite",
     dither: "Dither",
     packing: "Packing",
+    growth: "Growth",
   };
   // studio.pfms is already grouped contiguously by family (registration
   // order in engine/pfm/__init__.py), so a single pass is enough.

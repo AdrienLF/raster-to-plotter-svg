@@ -9,6 +9,8 @@
     "random_stipple": 3000,
     "hatch_lines": 4000,
     "sketch_lines": 10000,
-    "spiral": 4000
+    "spiral": 4000,
+    "differential_growth": 12000,
+    "quadtree_mosaic": 10000
   }
 }
