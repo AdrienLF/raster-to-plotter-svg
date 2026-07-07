@@ -305,4 +305,10 @@
     color: var(--text-dim, #888);
     font-size: 10px;
   }
+  @media (max-width: 1280px) {
+    .pfm-picker {
+      right: auto;
+      left: 12px;
+    }
+  }
 </style>

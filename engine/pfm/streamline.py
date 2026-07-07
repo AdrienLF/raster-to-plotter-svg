@@ -11,9 +11,9 @@ from ._params import SEED
 
 _STREAM_PARAMS = [
     Param("min_spacing", "float", 3.0, group="Streamlines", min=0.5, max=20,
-          help="Closest streamlines get to each other, used in the darkest areas"),
+          help="Closest streamlines get to each other, in working pixels (≈ pen widths), used in the darkest areas"),
     Param("max_spacing", "float", 10.0, group="Streamlines", min=2, max=50,
-          help="Distance between streamlines in the lightest areas"),
+          help="Distance between streamlines in the lightest areas, in working pixels (≈ pen widths)"),
     Param("min_length", "float", 6.0, group="Streamlines", min=0, max=200,
           help="Discard streamlines shorter than this"),
     Param("max_length", "float", 200.0, group="Streamlines", min=0, max=500,

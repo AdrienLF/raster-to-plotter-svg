@@ -232,7 +232,7 @@
         {/if}
       </div>
       <div class="row">
-        <span class="lbl">Mask</span>
+        <span class="lbl" title="Masks clip what this layer SHOWS on the page. To limit where strokes GENERATE, use a Region in the layer's Path Finding settings.">Mask</span>
         <button class:on={studio.maskMode === "rect"} onclick={() => setTool("rect")}>Rectangle</button>
         <button class:on={studio.maskMode === "ellipse"} onclick={() => setTool("ellipse")}>Oval</button>
         <button class:on={studio.maskMode === "pen"} onclick={() => setTool("pen")}>Pen</button>

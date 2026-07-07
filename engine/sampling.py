@@ -105,10 +105,10 @@ class AdaptiveSampler:
     @staticmethod
     def run(img: Image.Image, p: dict, seed: int = 0):
         rng = np.random.default_rng(seed)
+        # brightness/contrast are applied to the work image in PFM.run now —
+        # passing them again here would double-apply.
         d = _density_map(
             img,
-            brightness=p.get("brightness", 1.0),
-            contrast=p.get("contrast", 1.0),
             ignore_white=p.get("ignore_white", True),
         )
         h, w = d.shape

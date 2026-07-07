@@ -242,7 +242,7 @@
     {#if layer}
       <div class="body">
         <div class="regions">
-          <label>
+          <label title="Regions limit where this layer GENERATES strokes (AI-selected on the source image). To clip what a layer SHOWS on the page, use a Mask in the Layers panel instead.">
             <span>Region</span>
             <select value={selectedRegionId} onchange={(e) => setRegion((e.target as HTMLSelectElement).value)}>
               <option value="">Whole image</option>
@@ -334,7 +334,7 @@
         </label>
 
         <label>
-          <span>PFM</span>
+          <span>Style</span>
           <select data-tour="pfm-select" value={style.pfm_id || studio.pfmId} onchange={(e) => setPfm((e.target as HTMLSelectElement).value)}>
             {#each pfmGroups as group (group.label)}
               <optgroup label={group.label}>
@@ -350,7 +350,10 @@
           class="pfm-preview"
           data-tour="pfm-browse"
           title="Browse all styles with previews"
-          onclick={() => (pickerOpen = !pickerOpen)}
+          onclick={() => {
+            pickerOpen = !pickerOpen;
+            if (pickerOpen) editingBinding = null;
+          }}
         >
           <img
             src={`/static/pfm-previews/${style.pfm_id || studio.pfmId}.png`}
@@ -378,7 +381,12 @@
                   param={p}
                   bind:value={localParams[p.name]}
                   binding={localBindings[p.name] ?? null}
-                  onEditBinding={p.bindable ? () => (editingBinding = editingBinding === p.name ? null : p.name) : null}
+                  onEditBinding={p.bindable
+                    ? () => {
+                        editingBinding = editingBinding === p.name ? null : p.name;
+                        if (editingBinding) pickerOpen = false;
+                      }
+                    : null}
                 />
               {/each}
             </div>

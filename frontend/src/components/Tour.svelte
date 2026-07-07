@@ -36,7 +36,7 @@
     {
       target: '[data-tour="pfm-select"]',
       title: "Choose Engraving",
-      body: "In the PFM dropdown, pick “Engraving” (under Streamline). It shades your image with flowing lines — density follows tone, direction follows a field.",
+      body: "In the Style dropdown pick “Engraving” (under Streamline) — or click ▦ Browse styles for previews. It shades your image with flowing lines — density follows tone, direction follows a field.",
       done: () => studio.selectedLayer?.pathfinding_style?.pfm_id === "engraving",
       doneLabel: "waiting for Engraving…",
     },

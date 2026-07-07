@@ -6,6 +6,15 @@ from ..params import Param
 
 SEED = [Param("seed", "int", 0, group="General", help="Random seed for reproducible output")]
 
+# Shared across every PFM (appended automatically in base.register): the same
+# tonal language everywhere instead of one dialect per sampler family.
+IMAGE_ADJUST = [
+    Param("brightness", "float", 1.0, group="Image", min=0, max=2,
+          help="Brighten or darken the source before generation (1 = unchanged)"),
+    Param("contrast", "float", 1.0, group="Image", min=0, max=2,
+          help="Increase or decrease source contrast before generation (1 = unchanged)"),
+]
+
 VORONOI_SAMPLER = [
     Param("point_density", "int", 500, group="Voronoi Sampling", min=1, max=1200,
           help="Roughly how many points to place, scaled to image size"),
@@ -28,10 +37,6 @@ ADAPTIVE_SAMPLER = [
           help="Closest points can get to each other, used in the darkest areas"),
     Param("max_sample_radius", "float", 6.0, group="Adaptive Sampling", min=0.5, max=100,
           help="Spacing between points in the lightest areas"),
-    Param("brightness", "float", 1.0, group="Adaptive Sampling", min=0, max=2,
-          help="Brighten or darken the image before sampling (1 = unchanged)"),
-    Param("contrast", "float", 1.0, group="Adaptive Sampling", min=0, max=2,
-          help="Increase or decrease contrast before sampling (1 = unchanged)"),
     Param("ignore_white", "bool", True, group="Adaptive Sampling",
           help="Skip placing points on near-white background"),
 ]

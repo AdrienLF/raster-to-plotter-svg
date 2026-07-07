@@ -9,7 +9,7 @@
 
 <div class="toolbar">
   {#if placed}
-    <span class="ctx">Layer Placement</span>
+    <span class="ctx">{studio.step === "plot" ? "Paper Placement" : "Layer Placement"}</span>
 
     <div class="group" role="group" aria-label="Align horizontally">
       <button title="Align left edges" onclick={() => onAlign("left")} aria-label="Align left edges">

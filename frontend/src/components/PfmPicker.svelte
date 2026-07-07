@@ -130,4 +130,10 @@
     line-height: 1.25;
     color: var(--text);
   }
+  @media (max-width: 1280px) {
+    .pfm-picker {
+      right: auto;
+      left: 12px;
+    }
+  }
 </style>
