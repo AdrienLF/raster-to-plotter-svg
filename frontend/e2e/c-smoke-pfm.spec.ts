@@ -66,6 +66,8 @@ const CUSTOM_CASES: [string, Record<string, unknown>][] = [
   ["random_stipple",           {}],
   ["streamlines_flow_field",   {}],
   ["engraving",                {}],
+  ["differential_growth",      { iterations: 80, seed_count: 6 }],
+  ["quadtree_mosaic",          {}],
 ];
 
 for (const [pfmId, params] of CUSTOM_CASES) {
