@@ -329,6 +329,18 @@
           <label for="plotter-curve-step">Curve step</label>
           <NumStep id="plotter-curve-step" min={0.05} step={0.05} bind:value={studio.settings.curve_step_mm} onchange={() => save()} />
         </div>
+        <div class="f">
+          <label for="plotter-merge-tolerance">Merge tolerance (mm)</label>
+          <NumStep
+            id="plotter-merge-tolerance"
+            min={0}
+            max={1}
+            step={0.01}
+            bind:value={studio.settings.merge_tolerance_mm}
+            onchange={() => save()}
+            title="Weld near-touching path ends into continuous strokes before reordering. 0 = off. Try 0.05–0.15."
+          />
+        </div>
         <label class="check" for="plotter-auto-rotate">
           <input id="plotter-auto-rotate" type="checkbox" bind:checked={studio.settings.auto_rotate} onchange={() => save()} />
           <span>Auto-rotate SVG</span>

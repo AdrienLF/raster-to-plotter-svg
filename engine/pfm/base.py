@@ -55,6 +55,9 @@ class PFM:
                 on_progress("styling", 0.6)
             items = STYLES[self.style](sites, weights, vals, (w, h))
         items = list(items)
+        if vals.get("merge_strokes"):
+            from ..chain import chain_items
+            items = chain_items(items)
 
         if on_progress:
             on_progress("distributing", 0.85)
@@ -104,9 +107,14 @@ def generate_items(pfm: "PFM", work: Image.Image, values: dict, seed: int,
         (values or {}).get("field_bindings"), pfm.params)
     vals["_field_ctx"] = fields.FieldContext(work, seed, paint_loader)
     if pfm.generate is not None:
-        return list(pfm.generate(work, vals, seed, bounds))
-    sites, weights = SAMPLERS[pfm.family].run(work, vals, seed)
-    return list(STYLES[pfm.style](sites, weights, vals, bounds))
+        items = list(pfm.generate(work, vals, seed, bounds))
+    else:
+        sites, weights = SAMPLERS[pfm.family].run(work, vals, seed)
+        items = list(STYLES[pfm.style](sites, weights, vals, bounds))
+    if vals.get("merge_strokes"):
+        from ..chain import chain_items
+        items = chain_items(items)
+    return items
 
 
 def offset_items(items: list, dx: float, dy: float) -> list:

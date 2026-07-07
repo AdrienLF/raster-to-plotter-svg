@@ -110,15 +110,27 @@ def style_params(style: str) -> list[Param]:
                   help="Shape size as a % of the point spacing"),
         ]
     if style == "triangulation":
-        return [Param("triangulate_corners", "bool", False, group="Triangulation",
-                      help="Add the four page corners as extra points so triangles reach the edges")]
+        return [
+            Param("triangulate_corners", "bool", False, group="Triangulation",
+                  help="Add the four page corners as extra points so triangles reach the edges"),
+            Param("merge_strokes", "bool", True, group="Triangulation",
+                  help="Weld shared endpoints into long continuous strokes (fewer pen lifts)"),
+        ]
     if style == "tree":
-        return [Param("create_curves", "bool", False, group="Tree",
-                      help="Smooth tree branches into curves instead of straight segments")]
+        return [
+            Param("create_curves", "bool", False, group="Tree",
+                  help="Smooth tree branches into curves instead of straight segments"),
+            Param("merge_strokes", "bool", True, group="Tree",
+                  help="Weld shared endpoints into long continuous strokes (fewer pen lifts)"),
+        ]
     if style == "diagram":
-        return [Param("voronoi_style", "enum", "classic", group="Diagram",
-                      choices=["classic", "smooth"],
-                      help="How the cell boundary lines are drawn")]
+        return [
+            Param("voronoi_style", "enum", "classic", group="Diagram",
+                  choices=["classic", "smooth"],
+                  help="How the cell boundary lines are drawn"),
+            Param("merge_strokes", "bool", True, group="Diagram",
+                  help="Weld shared endpoints into long continuous strokes (fewer pen lifts)"),
+        ]
     if style == "tsp":
         return [Param("merge_tsp_paths", "bool", True, group="TSP",
                       help="Join the whole tour into one continuous path (fewer pen lifts)")]

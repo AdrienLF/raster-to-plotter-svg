@@ -264,28 +264,26 @@ def _clip_polyline_outside_polygon(points: list[Point], polygon: list[Point]) ->
     return out
 
 
-def clipped_layer_body(
+def flattened_clipped_polylines(
     svg: str,
     crop: dict | None,
     mask: dict | None,
-    exclude_masks: list[dict] | None = None,
-) -> str:
-    """Flatten ``svg`` and clip to ``crop`` and/or ``mask``; return SVG body.
+) -> list[tuple[list[Point], str, float]]:
+    """Flatten ``svg`` and clip to ``crop`` and/or ``mask``.
 
-    Coordinates are layer-local mm; the caller wraps this in the layer's
-    ``translate(x y)`` (or a crop offset for split export).
+    Returns ``(polyline, stroke_attrs, stroke_width_mm)`` tuples in layer-local
+    mm — the shared front half of :func:`clipped_layer_body`, also used by the
+    stroke-occlusion pass in ``engine.composition`` (width 0.0 = unparsable).
     """
     rect = _crop_rect(crop) if crop else None
     poly = mask_polygon(mask) if mask else None
     poly_bb = _polygon_bbox(poly) if poly else None
-    exclude_polys = [mask_polygon(m) for m in (exclude_masks or []) if m]
-    # (polygon, bbox) for each occluder, so a polyline whose bbox misses the
-    # occluder can be kept untouched without the O(segments x edges) clip.
-    exclude_data = [(p, _polygon_bbox(p)) for p in exclude_polys if p]
     drawables, _se = _drawables(svg)
-    out: list[str] = []
+    out: list[tuple[list[Point], str, float]] = []
     for el in drawables:
         attrs = _stroke_attrs(el)
+        width = getattr(el, "stroke_width", None)
+        width_mm = float(width) * PX_TO_MM if width else 0.0
         for line in _flatten_element(el):
             pieces = [line]
             if rect is not None:
@@ -298,18 +296,47 @@ def clipped_layer_body(
                         continue
                     kept.extend(clip_polyline_polygon(pl, poly))
                 pieces = kept
-            for exclude_poly, ebb in exclude_data:
-                kept = []
-                for pl in pieces:
-                    # Disjoint from the occluder's bbox => nothing to remove.
-                    if _bbox_disjoint(_polygon_bbox(pl), ebb):
-                        kept.append(pl)
-                    else:
-                        kept.extend(_clip_polyline_outside_polygon(pl, exclude_poly))
-                pieces = kept
             for sub in pieces:
-                if len(sub) < 2:
-                    continue
-                d = "M" + " L".join(f"{_fmt(x)} {_fmt(y)}" for x, y in sub)
-                out.append(f'<path d="{escape(d)}" {attrs}/>')
+                if len(sub) >= 2:
+                    out.append((sub, attrs, width_mm))
+    return out
+
+
+def polyline_path_el(points: list[Point], attrs: str) -> str:
+    """One ``<path>`` element for a layer-local-mm polyline."""
+    d = "M" + " L".join(f"{_fmt(x)} {_fmt(y)}" for x, y in points)
+    return f'<path d="{escape(d)}" {attrs}/>'
+
+
+def clipped_layer_body(
+    svg: str,
+    crop: dict | None,
+    mask: dict | None,
+    exclude_masks: list[dict] | None = None,
+) -> str:
+    """Flatten ``svg`` and clip to ``crop`` and/or ``mask``; return SVG body.
+
+    Coordinates are layer-local mm; the caller wraps this in the layer's
+    ``translate(x y)`` (or a crop offset for split export).
+    """
+    exclude_polys = [mask_polygon(m) for m in (exclude_masks or []) if m]
+    # (polygon, bbox) for each occluder, so a polyline whose bbox misses the
+    # occluder can be kept untouched without the O(segments x edges) clip.
+    exclude_data = [(p, _polygon_bbox(p)) for p in exclude_polys if p]
+    out: list[str] = []
+    for line, attrs, _width in flattened_clipped_polylines(svg, crop, mask):
+        pieces = [line]
+        for exclude_poly, ebb in exclude_data:
+            kept = []
+            for pl in pieces:
+                # Disjoint from the occluder's bbox => nothing to remove.
+                if _bbox_disjoint(_polygon_bbox(pl), ebb):
+                    kept.append(pl)
+                else:
+                    kept.extend(_clip_polyline_outside_polygon(pl, exclude_poly))
+            pieces = kept
+        for sub in pieces:
+            if len(sub) < 2:
+                continue
+            out.append(polyline_path_el(sub, attrs))
     return "\n".join(out)

@@ -100,6 +100,7 @@ DEFAULTS = {
     'pen_delay_down':  0,
     'auto_rotate':     True,
     'reordering':      'nearest',
+    'merge_tolerance_mm': 0.0,
     'copies':          1,
     'page_delay':      15,
     'curve_step_mm':   0.5,
@@ -853,6 +854,14 @@ def svg_to_polylines(svg_bytes, settings, on_progress=None, respect_stop=True):
     if on_progress:
         on_progress(total_el, total_el)
 
+    try:
+        merge_tol = float((settings or {}).get('merge_tolerance_mm', 0) or 0)
+    except (TypeError, ValueError):
+        merge_tol = 0.0
+    if merge_tol > 0:
+        from engine.chain import chain_polylines
+        polylines = chain_polylines(polylines, merge_tol)
+
     reordering = _reordering_mode(settings)
     if reordering != 'none':
         polylines = _reorder(polylines, reordering)
@@ -996,6 +1005,7 @@ def _paths_signature(svg_bytes, settings, placement):
     meta = {
         'curve_step_mm': float((settings or {}).get('curve_step_mm', 0.5) or 0.5),
         'reordering': _reordering_mode(settings),
+        'merge_tol': round(float((settings or {}).get('merge_tolerance_mm', 0) or 0), 4),
         'px': round(float((placement or {}).get('x', 0.0)), 4),
         'py': round(float((placement or {}).get('y', 0.0)), 4),
     }
@@ -2147,6 +2157,8 @@ def api_composition_layer(layer_id):
             return jsonify(error=str(exc)), 400
     if 'occlude_below' in data:
         layer.occlude_below = bool(data.get('occlude_below'))
+    if 'occlusion_mode' in data:
+        layer.occlusion_mode = 'strokes' if data.get('occlusion_mode') == 'strokes' else 'mask'
     if 'occlusion_mask' in data:
         layer.occlusion_mask = _validate_mask(data['occlusion_mask'])
     if 'pathfinding_style' in data:
