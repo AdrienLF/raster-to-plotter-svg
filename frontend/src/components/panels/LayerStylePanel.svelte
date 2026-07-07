@@ -10,6 +10,9 @@
   let localBindings = $state<Record<string, FieldBinding>>({});
   let editingBinding = $state<string | null>(null);
   let pickerOpen = $state(false);
+  // Debounced low-res regenerate after each param change (Apply = full res).
+  let liveDraft = $state(true);
+  let draftTimer: ReturnType<typeof setTimeout> | null = null;
   let loadedPfm = $state("");
   let paramKey = "";
   let regionName = $state("Region");
@@ -191,6 +194,17 @@
     delete params.field_bindings;
     if (Object.keys(localBindings).length) params.field_bindings = localBindings;
     await patchStyle({ params });
+    scheduleDraft();
+  }
+
+  function scheduleDraft() {
+    if (!liveDraft || !layer || !style.enabled) return;
+    const id = layer.id;
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      draftTimer = null;
+      if (!studio.processing) void api.generateLayerPathfinding(id, { draft: true });
+    }, 600);
   }
 
   async function setBinding(name: string, binding: FieldBinding | null) {
@@ -390,6 +404,11 @@
         {#if style.error}
           <p class="error">{style.error}</p>
         {/if}
+
+        <label class="check live-draft" title="After each change, redraw a quick low-resolution sketch. Apply still renders full quality.">
+          <input type="checkbox" bind:checked={liveDraft} />
+          <span>Live draft preview</span>
+        </label>
 
         <button
           class="primary"

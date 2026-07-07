@@ -75,8 +75,13 @@ class DrawingArea:
         return l, t, max(1.0, pw - l - r), max(1.0, ph - t - b)
 
     # ── working raster ──────────────────────────────────────────────────────────
-    def working_resolution(self, src_w: int, src_h: int) -> tuple[int, int]:
-        """Pixel dimensions of the raster the PFM should analyse."""
+    def working_resolution(self, src_w: int, src_h: int,
+                           max_px: int | None = None) -> tuple[int, int]:
+        """Pixel dimensions of the raster the PFM should analyse.
+
+        ``max_px`` caps the longer side (draft previews) without touching the
+        aspect or the pen-width-derived proportions.
+        """
         if self.use_original_sizing or not self.rescale_to_pen_width or self.rescale_mode == "off":
             # Match the source, but keep the inner aspect ratio.
             _, _, iw, ih = self.inner_rect_mm()
@@ -94,11 +99,15 @@ class DrawingArea:
             scale = min(1.0, cap / max(w, h))
             w = max(8, int(round(w * scale)))
             h = max(8, int(round(h * scale)))
+        if max_px:
+            scale = min(1.0, max_px / max(w, h))
+            w = max(8, int(round(w * scale)))
+            h = max(8, int(round(h * scale)))
         return w, h
 
-    def prepare_image(self, src: Image.Image) -> Image.Image:
+    def prepare_image(self, src: Image.Image, max_px: int | None = None) -> Image.Image:
         """Fit the source image into the working raster per the scaling mode."""
-        w, h = self.working_resolution(src.width, src.height)
+        w, h = self.working_resolution(src.width, src.height, max_px=max_px)
         if src.mode not in ("RGB", "RGBA", "L", "LA"):
             src = src.convert("RGBA")
         if self.scaling_mode == "stretch":

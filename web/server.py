@@ -2385,7 +2385,8 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
     img = _project.open_region_image(region_id) if region else _project.open_image()
     if img is None:
         return None, ('No image available', 404)
-    if layer.svg:
+    draft = bool(data.get('draft'))
+    if layer.svg and not draft:
         _push_undo(f'regenerate “{layer.name}”')
     layer.pathfinding_style = {
         **style,
@@ -2397,7 +2398,8 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
     }
     on_progress = wide.wrap_progress() if wide is not None else None
     drawing = pfm.run(img, _project.area, _project.drawing_set, params, seed=seed,
-                      on_progress=on_progress, paint_loader=_project.open_field_mask)
+                      on_progress=on_progress, paint_loader=_project.open_field_mask,
+                      draft=draft)
     if wide is not None:
         try:  # logging is best-effort — never let metric extraction break generation
             wide.set(shapes=drawing.total(),
@@ -2429,12 +2431,15 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
         'enabled': bool(data.get('enabled', style.get('enabled', True))),
         'pfm_id': pfm_id,
         'params': params,
-        'status': 'clean',
+        # A draft render is a low-res sketch: keep the style 'stale' so the
+        # badge honestly says Apply is still needed for final quality.
+        'status': 'stale' if draft else 'clean',
         'error': '',
         'cache': {
             'generated_at': time.time(),
             'svg_path': layer.svg_path,
             'region_id': region.id if region else None,
+            'draft': draft,
         },
     }
     return drawing, None

@@ -641,7 +641,7 @@ export const api = {
     });
   },
 
-  async generateLayerPathfinding(id: string) {
+  async generateLayerPathfinding(id: string, opts: { draft?: boolean } = {}) {
     const layer = studio.composition.layers.find((item) => item.id === id);
     if (!layer) return;
     if (!studio.imageUrl) {
@@ -650,7 +650,7 @@ export const api = {
     }
     const style = layerStyle(layer);
     studio.processing = true;
-    studio.status = "Generating layer";
+    studio.status = opts.draft ? "Draft preview" : "Generating layer";
     studio.progress = 0;
     try {
       await this.saveArea();
@@ -663,14 +663,17 @@ export const api = {
         display_mode: layer.display_mode,
         area: studio.area,
         drawing_set: studio.drawingSet,
+        draft: Boolean(opts.draft),
       });
       this.applyComposition(j);
       studio.status = "Ready";
       studio.progress = 1;
       // Don't block "Ready" on the plot-time estimate — it re-parses the whole
       // drawing and can take a moment on dense stipples. Let it fill in after.
-      void this.refreshEstimate(true);
-      pushLog(`Generated layer ${layer.name}`);
+      if (!opts.draft) {
+        void this.refreshEstimate(true);
+        pushLog(`Generated layer ${layer.name}`);
+      }
       return j;
     } catch (e) {
       reportError("Layer pathfinding error", e);

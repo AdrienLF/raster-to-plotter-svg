@@ -30,12 +30,14 @@ class PFM:
     params: list[Param]
     generate: GenerateFn | None = None  # for grid PFMs
 
+    DRAFT_MAX_PX = 420   # longer side of the draft-preview working raster
+
     def run(self, image: Image.Image, area: DrawingArea, drawing_set: DrawingSet,
             values: dict, seed: int = 0, on_progress: Callable | None = None,
-            paint_loader: Callable | None = None) -> Drawing:
+            paint_loader: Callable | None = None, draft: bool = False) -> Drawing:
         vals = validate(self.params, values)
         seed = int(vals.get("seed", seed) or 0)
-        work = area.prepare_image(image)
+        work = area.prepare_image(image, max_px=self.DRAFT_MAX_PX if draft else None)
         from .. import fields
         vals["field_bindings"] = fields.normalize_bindings(
             (values or {}).get("field_bindings"), self.params)
