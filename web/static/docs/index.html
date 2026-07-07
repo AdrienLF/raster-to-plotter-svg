@@ -21,23 +21,24 @@
 
 <figure>
   <img src="img/overview.png" alt="The Plotter Studio window: menu bar, workflow steps, viewport with a stippled A3 page, and the dock with Layers, Drawing Area, Pens and Versions panels.">
-  <figcaption>The studio. Left: tool rail and the page. Right: the dock — Layers, Drawing Area, Pens, Versions. Top: the four workflow steps.</figcaption>
+  <figcaption>The studio. Left: tool rail and the page. Right: the dock — Layers, Drawing Area, Pens, Versions. Top: the three workflow steps.</figcaption>
 </figure>
 
-<h2>The four steps</h2>
+<h2>The three steps</h2>
 <p>
   The tabs across the top are a journey, not a maze — most sessions flow left
   to right, and you can hop back at any time:
 </p>
 <div class="cards">
-  <a class="card" href="create.html"><strong>1 · Path Finding</strong><p>Convert an image into strokes with one of 43 path-finding modules — stippling, hatching, engraving, mosaics…</p></a>
+  <a class="card" href="compose.html"><strong>1 · Compose</strong><p>The home base: stack layers on the page — image-driven strokes (43 styles), moves, crops, masks, occlusion.</p></a>
   <a class="card" href="create.html#generate"><strong>2 · Generate</strong><p>Procedural, image-free drawings: geometric compositions and shape fields.</p></a>
-  <a class="card" href="compose.html"><strong>3 · Composition</strong><p>Stack layers on the page: move, scale, crop, mask, occlude, mix sources.</p></a>
-  <a class="card" href="plot.html"><strong>4 · Plot</strong><p>Estimate, place on paper, and drive the plotter — pens, speeds, copies, resume.</p></a>
+  <a class="card" href="plot.html"><strong>3 · Plot</strong><p>Estimate, place on paper, and drive the plotter — pens, speeds, copies, resume.</p></a>
 </div>
 <div class="cards">
+  <a class="card" href="create.html"><strong>✎ Creating strokes</strong><p>The style catalog: every algorithm compared on the same image, plus AI regions and live draft previews.</p></a>
   <a class="card" href="fields.html"><strong>✦ Painting with Fields</strong><p>The deep magic: drive any ◉ parameter with image maps, noise, gradients or a painted mask.</p></a>
 </div>
+
 
 <h2>Your first plot, in five minutes</h2>
 <ol class="steps">
@@ -57,6 +58,7 @@
   <tr><td>Move a layer</td><td>Drag it. Edges snap to the page and to other layers; the toolbar's align buttons line up selected layers precisely.</td></tr>
   <tr><td>Nudge placement</td><td>The X/Y readout in the toolbar shows the plot placement in mm.</td></tr>
   <tr><td>Stop anything</td><td>The red ■ on the rail halts processing or plotting.</td></tr>
+  <tr><td>Undo</td><td><kbd>⌘Z</kbd> / <kbd>Ctrl+Z</kbd> (or Edit → Undo) restores the composition after a layer delete or an unwanted regenerate — up to ten steps back.</td></tr>
 </table>
 
 <h2>Projects & versions</h2>
@@ -68,10 +70,11 @@
 </p>
 <p>
   The <strong>Versions</strong> panel is your contact sheet: after a result you
-  like, type a name and <strong>＋ Save</strong>. Each version stores a
-  thumbnail and its exact module + parameters, so you can compare directions
-  and restore any of them later. Rate them, keep notes, stay honest about
-  which experiment actually looked best.
+  like, type a name and <strong>＋ Save</strong>. Each version snapshots the
+  <em>whole visible page</em> — every layer with its geometry and settings —
+  plus a thumbnail, so you can compare directions and restore any of them
+  later. Rate them, keep notes, stay honest about which experiment actually
+  looked best.
 </p>
 
 <h2>Exporting</h2>

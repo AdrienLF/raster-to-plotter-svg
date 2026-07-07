@@ -17,7 +17,7 @@
   const isNumeric = $derived(
     param.type === "float" || param.type === "int" || param.type === "angle",
   );
-  const bindable = $derived(Boolean(param.bindable && onEditBinding));
+  const canBindField = $derived(Boolean(param.bindable && onEditBinding));
   const bound = $derived(Boolean(binding));
 </script>
 
@@ -30,7 +30,7 @@
   {:else}
     <div class="label-row">
       <label for={param.name} title={param.help}>{param.label}</label>
-      {#if bindable}
+      {#if canBindField}
         <button
           type="button"
           class="bind"

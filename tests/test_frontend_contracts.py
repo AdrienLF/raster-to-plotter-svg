@@ -443,6 +443,16 @@ class FrontendContractsTest(unittest.TestCase):
         self.assertIn("title={inputTitle}", stepper)
         self.assertIn("`${title}: ${fullValue}`", stepper)
 
+    def test_param_control_does_not_shadow_the_bindable_rune(self):
+        control = (
+            ROOT / "frontend/src/components/ParamControl.svelte"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("value = $bindable()", control)
+        self.assertNotRegex(control, r"\bconst\s+bindable\s*=")
+        self.assertIn("const canBindField =", control)
+        self.assertIn("{#if canBindField}", control)
+
 
 if __name__ == "__main__":
     unittest.main()
