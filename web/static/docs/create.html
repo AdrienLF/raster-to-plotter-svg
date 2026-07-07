@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Creating strokes · Plotter Studio Manual</title>
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="crumbs"><a href="index.html">Manual</a> › Creating strokes</nav>
+
+<header class="hero">
+  <div class="kicker">Plotter Studio · Manual</div>
+  <h1>Creating strokes</h1>
+  <p class="lede">
+    Two ways to make marks: <strong>Path Finding</strong> interprets an image;
+    <strong>Generate</strong> draws from pure rules. Both end up as layers you
+    compose and plot.
+  </p>
+</header>
+
+<h2>Path Finding</h2>
+<p>
+  A path-finding module (PFM) reads your image's tone and turns it into
+  plottable geometry. Add one via <strong>＋ Path finding</strong> in the
+  Layers panel — the Path Finding window opens with the module picker and its
+  parameters. Change anything, press <strong>Apply / Regenerate</strong>, and
+  the layer redraws.
+</p>
+<p>
+  Every module has a <strong>Seed</strong>: the same seed reproduces the same
+  drawing exactly, a different seed re-rolls the randomness. Parameters marked
+  with <strong>◉</strong> can be driven spatially — see
+  <a href="fields.html">Painting with Fields</a>.
+</p>
+
+<h3>Point modules: sampler × style</h3>
+<p>
+  The biggest group places <em>points</em> where the image is dark, then draws
+  something at or between them. You choose both halves independently — four
+  samplers × seven styles:
+</p>
+<table>
+  <tr><th>Sampler</th><th>Character</th></tr>
+  <tr><td>Voronoi</td><td>Points relax into beautifully even spacing (weighted Lloyd). The classic stipple engine; density and contrast knobs.</td></tr>
+  <tr><td>Adaptive</td><td>Spacing follows tone directly between a min and max radius. Fast, direct, great default.</td></tr>
+  <tr><td>LBG</td><td>Dots split and merge until their sizes settle to local tone — halftone-like discipline.</td></tr>
+  <tr><td>Poisson</td><td>Blue-noise dart throwing: organic, never clumpy, spacing between two radii.</td></tr>
+</table>
+<table>
+  <tr><th>Style</th><th>Draws</th></tr>
+  <tr><td>Stippling</td><td>A dot per point; radius follows darkness.</td></tr>
+  <tr><td>Dashes</td><td>A short stroke per point — length from tone, angle steerable (and bindable).</td></tr>
+  <tr><td>Shapes</td><td>A stamped shape per point: circle, square, star, triangle, cross, superellipse, or random.</td></tr>
+  <tr><td>Triangulation</td><td>The Delaunay web between points — crystalline mesh.</td></tr>
+  <tr><td>Tree</td><td>The minimum spanning tree — a single branching organism.</td></tr>
+  <tr><td>Diagram</td><td>Voronoi cell walls — cracked-earth / dragonfly-wing look.</td></tr>
+  <tr><td>TSP</td><td>One continuous line visiting every point — the classic single-line portrait.</td></tr>
+</table>
+
+<h3>Line & texture modules</h3>
+<table>
+  <tr><th>Module</th><th>Character</th></tr>
+  <tr><td>Hatch</td><td>Parallel hatching with wave types, variable velocity, optional crosshatch and linked ends.</td></tr>
+  <tr><td>Spiral</td><td>One spiral from the centre, modulated by tone — vinyl-groove portraits.</td></tr>
+  <tr><td>Sketch Lines / Curves / Squares</td><td>Gestural strokes that build tone like pencil scribbles.</td></tr>
+  <tr><td>Streamlines (Flow / Edge / Superformula)</td><td>Evenly-spaced lines traced through a vector field — sinusoidal flow, the image's own edge flow, or a rosette.</td></tr>
+  <tr><td>Engraving</td><td>Copperplate shading: line density from tone, direction from a mixable field (edges + noise + radial), optional crosshatch bands in the shadows. Direction is field-bindable — <a href="fields.html">paint it by hand</a>.</td></tr>
+  <tr><td>Grid / Dither Halftone, Random Stipple</td><td>Screen-like halftones and pure random stipple.</td></tr>
+  <tr><td>Circle Packing</td><td>Circles packed tightly, sized by tone.</td></tr>
+  <tr><td>Layers / Mosaic Rectangles</td><td>Composites: run several modules stacked, or tile the image and give each tile a random module.</td></tr>
+</table>
+
+<div class="note">
+  <strong>Which one first?</strong> Voronoi Stippling for portraits,
+  Streamlines Edge Field or Engraving for form-following shading, Hatch for
+  bold graphic tone, TSP when you want a single unbroken line. Then start
+  breaking the rules.
+</div>
+
+<h2>Regions — apply a module to part of the image</h2>
+<p>
+  The Path Finding window's <strong>Region</strong> row limits a layer to a
+  piece of the image, selected with on-device AI (SAM&nbsp;2):
+</p>
+<ol class="steps">
+  <li>Click <strong>AI select</strong> — the viewport switches to region mode.</li>
+  <li><strong>Click on the subject</strong>. Each click adds a positive point; <kbd>Alt</kbd>-click (or right-click) marks what to exclude. The teal preview updates live.</li>
+  <li>Name it, optionally <em>invert</em>, and <strong>Save</strong>. The layer now generates only inside that region.</li>
+</ol>
+<p>
+  Different layers can use different regions — stipple the face, hatch the
+  background, engrave the coat. Each region also gives its layer an occlusion
+  silhouette for the Composition step. The first use downloads the SAM model;
+  the panel shows progress.
+</p>
+
+<h2 id="generate">Generate — drawing without an image</h2>
+<p>
+  The <strong>Generate</strong> step makes procedural compositions. Pick a
+  generator, adjust, and it redraws live (toggle <em>auto-redraw</em> off for
+  heavy settings). The result becomes a normal composition layer.
+</p>
+<table>
+  <tr><th>Generator</th><th>What it makes</th></tr>
+  <tr><td>Spokes &amp; Circles</td><td>Radiating ray clusters with concentric circles and clean crop-outs — poster-grade geometric pieces, with per-cluster pen cycling.</td></tr>
+  <tr><td>Shape Field</td><td>A grid of parametric shapes (circles, polygons, stars, spirals, waves…) with per-tile modulation — scale, rotation and offset swept by row, column, radius, wave or noise. Has its own layer-stack editor.</td></tr>
+</table>
+<p>
+  Generators honour the page setup and margins, and multiple pens can be
+  cycled across elements — see the <em>Pens</em> section of
+  <a href="plot.html">Plotting</a>.
+</p>
+
+<h2>Iterating honestly</h2>
+<p>
+  Save <strong>Versions</strong> liberally (dock, right side): each stores a
+  thumbnail plus the exact module and parameters. When two directions fight,
+  generate both, save both, and look at the thumbnails side by side tomorrow.
+  The seed makes every experiment repeatable.
+</p>
+
+<footer>
+  Next: <a href="compose.html">Composing the page →</a>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pens, paper &amp; plotting · Plotter Studio Manual</title>
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="crumbs"><a href="index.html">Manual</a> › Pens, paper &amp; plotting</nav>
+
+<header class="hero">
+  <div class="kicker">Plotter Studio · Manual</div>
+  <h1>Pens, paper &amp; plotting</h1>
+  <p class="lede">
+    The last mile: real pens, real paper, a real machine. The studio drives
+    Grbl pen plotters (built for the iDraw&nbsp;H&nbsp;A3) with time estimates,
+    multi-pen choreography and resumable jobs.
+  </p>
+</header>
+
+<h2>Pens &amp; drawing sets</h2>
+<p>
+  The <strong>Pens</strong> panel defines your physical pens: colour, stroke
+  width in mm, an enable toggle, and a <strong>weight</strong> — the pen's
+  share of the drawing. Load a ready-made <em>Library…</em> (e.g. a marker
+  set) or build your own with ＋.
+</p>
+<ul>
+  <li><strong>Nib shape</strong> — round, or <em>flat</em> with a nib angle: the preview renders the broad-edge calligraphy the pen will actually make.</li>
+  <li><strong>Distribution</strong> — how shapes are dealt to pens:
+    <em>Luminance</em> (dark marks → dark pens; the tonal workhorse),
+    <em>Even</em> / <em>Random weighted</em> (by pen weight),
+    <em>Single pen</em>, or <em>Preconfigured</em> squiggle mixes.
+    <em>Order</em> flips whether the darkest pen takes the darkest marks first.</li>
+</ul>
+<p>
+  Layers generated earlier remember their drawing set, and export writes one
+  Inkscape layer per pen, in plotting order.
+</p>
+
+<h2>Drawing Area</h2>
+<p>
+  Paper and framing for generation: <strong>presets</strong> (A-series and
+  more) or custom width × height in mm/cm/in, orientation, and per-side
+  <strong>padding</strong> (margins). <strong>Scaling</strong> decides how the
+  source image fills the inner area (crop to fill / fit inside / stretch);
+  <strong>Clipping</strong> trims strokes at the drawing bounds.
+  <strong>Pen width (mm)</strong> is quietly the most important number in the
+  app: the generation raster is sized so one pixel ≈ one pen stroke, which is
+  what keeps "density 100%" plottable instead of a puddle. <em>Rescale</em>
+  caps that resolution for speed while drafting.
+</p>
+
+<h2>The Plot step</h2>
+<figure>
+  <img src="img/plot.png" alt="The Plot step showing the Plotter panel with Estimate, Setup, Speed, Pen Timing, Manual and Advanced tabs, and Start/Resume/Stop controls.">
+  <figcaption>The Plotter panel. Estimate before you commit; Setup connects the machine; Start begins the job.</figcaption>
+</figure>
+
+<h3>Estimate</h3>
+<p>
+  Paths, segments, pen cycles, drawn distance vs. pen-up travel, and a time
+  estimate broken down into drawing / travel / pen motion / copy delays —
+  computed from your actual speeds. Check it before committing a 4-hour piece.
+</p>
+
+<h3>Setup</h3>
+<p>
+  <strong>Port</strong> selects the serial connection. A plotter on another
+  machine works too: run the bundled bridge (<code>bridge/</code> folder —
+  launchd/systemd service that forwards the serial port over the network) and
+  choose the <code>socket://host:port</code> entry.
+  <strong>Paper preset / size</strong> and <strong>Pen up / down</strong>
+  heights complete the physical setup.
+</p>
+
+<h3>Speed &amp; Pen Timing</h3>
+<p>
+  <strong>Drawing speed</strong> and <strong>Travel speed</strong> (mm/min),
+  <strong>Copies</strong> with a <strong>copy delay</strong> for swapping
+  paper, and fine <strong>pen timing</strong>: raise/lower rates and
+  settle delays after up/down — the difference between crisp dots and blobs.
+</p>
+
+<h3>Manual</h3>
+<p>
+  Jog the head (configurable step), home the machine, raise/lower the pen,
+  and send one-off commands — for aligning paper and testing pens.
+</p>
+
+<h3>Advanced</h3>
+<ul>
+  <li><strong>Reordering</strong> — cuts pen-up travel:
+    <em>Nearest neighbour</em> (fast greedy), <em>Nearest + reverse paths</em>
+    (may draw paths backwards to chain better), <em>2-opt optimizer</em>
+    (slowest, shortest), or <em>None</em> to preserve drawing order.</li>
+  <li><strong>Curve step</strong> — how finely curves are flattened to machine segments (mm). Smaller = smoother = more G-code.</li>
+  <li><strong>Auto-rotate</strong> — rotates the page to the machine's orientation automatically.</li>
+</ul>
+
+<h2>Placing the drawing on the paper</h2>
+<p>
+  In the Plot step, drag the drawing outline on the canvas to position it on
+  the physical sheet — the toolbar shows the offset in mm, and the align
+  buttons snap it to paper edges/centres. Placement is part of the job, so a
+  resumed plot lands in exactly the same spot.
+</p>
+
+<h2>Multi-pen plots &amp; resume</h2>
+<ul>
+  <li><strong>Pen changes</strong> — with several enabled pens, the job pauses between pens, shows which pen to load (name + colour) and waits for your confirmation. Copies on fresh sheets prompt the same way.</li>
+  <li><strong>Start / Stop / Resume</strong> — Stop is always safe: the pen lifts and the job checkpoints. <strong>Resume</strong> continues exactly where it stopped — after a jam, an ink change, or a power-down — including the right copy, pen and path. The saved job survives restarting the app.</li>
+  <li><strong>Progress</strong> — live elapsed/remaining time, shapes drawn, segments left.</li>
+</ul>
+
+<div class="note">
+  <strong>A good pre-flight:</strong> estimate → check travel isn't dwarfing
+  drawing (raise reordering if it is) → jog to origin → pen up/down test on
+  scrap → Start. Cheap insurance for expensive paper.
+</div>
+
+<footer>
+  Back to the <a href="index.html">manual</a> · or the deep magic:
+  <a href="fields.html">Painting with Fields</a>
+</footer>
+
+</div>
+</body>
+</html>

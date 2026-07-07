@@ -171,6 +171,7 @@
     </button>
     {#if open === "help"}
       <div class="items">
+        <button onclick={() => run(() => window.open("/static/docs/index.html", "_blank"))}>User manual</button>
         <button onclick={() => run(() => (studio.tourStep = 0))}>✦ Tutorial: paint a direction field</button>
         <button onclick={() => run(() => window.open("/static/docs/fields.html", "_blank"))}>Fields guide (docs)</button>
       </div>

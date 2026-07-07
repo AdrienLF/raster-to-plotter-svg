@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plotter Studio · Manual</title>
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">Plotter Studio · Manual</div>
+  <h1>From image to ink</h1>
+  <p class="lede">
+    Plotter Studio turns photographs and procedural drawings into pen strokes
+    for a plotter. You compose in layers, preview real pen widths, and drive
+    the machine — all from one window. This manual walks the whole journey.
+  </p>
+</header>
+
+<figure>
+  <img src="img/overview.png" alt="The Plotter Studio window: menu bar, workflow steps, viewport with a stippled A3 page, and the dock with Layers, Drawing Area, Pens and Versions panels.">
+  <figcaption>The studio. Left: tool rail and the page. Right: the dock — Layers, Drawing Area, Pens, Versions. Top: the four workflow steps.</figcaption>
+</figure>
+
+<h2>The four steps</h2>
+<p>
+  The tabs across the top are a journey, not a maze — most sessions flow left
+  to right, and you can hop back at any time:
+</p>
+<div class="cards">
+  <a class="card" href="create.html"><strong>1 · Path Finding</strong><p>Convert an image into strokes with one of 43 path-finding modules — stippling, hatching, engraving, mosaics…</p></a>
+  <a class="card" href="create.html#generate"><strong>2 · Generate</strong><p>Procedural, image-free drawings: geometric compositions and shape fields.</p></a>
+  <a class="card" href="compose.html"><strong>3 · Composition</strong><p>Stack layers on the page: move, scale, crop, mask, occlude, mix sources.</p></a>
+  <a class="card" href="plot.html"><strong>4 · Plot</strong><p>Estimate, place on paper, and drive the plotter — pens, speeds, copies, resume.</p></a>
+</div>
+<div class="cards">
+  <a class="card" href="fields.html"><strong>✦ Painting with Fields</strong><p>The deep magic: drive any ◉ parameter with image maps, noise, gradients or a painted mask.</p></a>
+</div>
+
+<h2>Your first plot, in five minutes</h2>
+<ol class="steps">
+  <li><strong>Import an image</strong> — <em>File → Import image…</em> or the 🖼 button on the left rail. JPEG/PNG for path finding; an SVG import lands directly as a composition layer.</li>
+  <li><strong>Add a path-finding layer</strong> — in the Layers panel click <strong>＋ Path finding</strong>. Pick a module (start with <em>Voronoi Stippling</em>), tweak, hit <strong>Apply / Regenerate</strong>. The page preview shows real pen strokes.</li>
+  <li><strong>Set your pens</strong> — in the Pens panel choose colour and stroke width (mm). The preview redraws with true widths; a flat nib even renders its calligraphic angle.</li>
+  <li><strong>Check the page</strong> — Drawing Area sets the paper size, margins and how the image fits. A4/A3 guides are drawn on the canvas.</li>
+  <li><strong>Plot</strong> — open the <em>Plot</em> step: connect the port in <em>Setup</em>, read the time estimate, position the drawing on the paper, press <strong>Start</strong>.</li>
+</ol>
+
+<h2>Getting around</h2>
+<table>
+  <tr><th>Action</th><th>How</th></tr>
+  <tr><td>Zoom</td><td>Scroll wheel — zooms toward the cursor.</td></tr>
+  <tr><td>Pan</td><td>Drag anywhere on the canvas background.</td></tr>
+  <tr><td>Fit page</td><td><em>Fit</em> button (top right) or the ⤢ rail button.</td></tr>
+  <tr><td>Move a layer</td><td>Drag it. Edges snap to the page and to other layers; the toolbar's align buttons line up selected layers precisely.</td></tr>
+  <tr><td>Nudge placement</td><td>The X/Y readout in the toolbar shows the plot placement in mm.</td></tr>
+  <tr><td>Stop anything</td><td>The red ■ on the rail halts processing or plotting.</td></tr>
+</table>
+
+<h2>Projects & versions</h2>
+<p>
+  Everything lives in a <strong>project</strong>: the source image, layers,
+  regions, painted field masks, pen sets and settings. The <em>Project</em>
+  menu creates, renames, opens and deletes them; the current project autosaves
+  as you work.
+</p>
+<p>
+  The <strong>Versions</strong> panel is your contact sheet: after a result you
+  like, type a name and <strong>＋ Save</strong>. Each version stores a
+  thumbnail and its exact module + parameters, so you can compare directions
+  and restore any of them later. Rate them, keep notes, stay honest about
+  which experiment actually looked best.
+</p>
+
+<h2>Exporting</h2>
+<p>
+  <em>File → Export SVG</em> writes the composed page as a single SVG with one
+  Inkscape layer per pen — ready for any other tool.
+  <em>Export layers (zip)</em> writes one SVG per composition layer plus a
+  manifest, for when another program does the final assembly.
+</p>
+
+<h2>Under the hood (one paragraph)</h2>
+<p>
+  Generation runs on a working raster where one pixel ≈ one pen width, so
+  "density" always means what the pen can actually resolve. Heavy sampling
+  runs on the GPU when available — the status bar shows the backend
+  (<code>torch-mps</code>, <code>cuda</code> or <code>numpy</code>). Output is
+  vector all the way down: mm-true SVG in, G-code out.
+</p>
+
+<footer>
+  Plotter Studio manual · <a href="create.html">Creating strokes</a> ·
+  <a href="compose.html">Composing</a> · <a href="plot.html">Plotting</a> ·
+  <a href="fields.html">Fields</a> · In-app tutorial: <strong>Help → ✦ Tutorial</strong>
+</footer>
+
+</div>
+</body>
+</html>

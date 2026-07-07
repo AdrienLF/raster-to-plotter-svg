@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Composing the page · Plotter Studio Manual</title>
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="crumbs"><a href="index.html">Manual</a> › Composing the page</nav>
+
+<header class="hero">
+  <div class="kicker">Plotter Studio · Manual</div>
+  <h1>Composing the page</h1>
+  <p class="lede">
+    Layers are the whole game: every path-finding result, generator drawing
+    and imported SVG is a layer on the page. The Composition step is where
+    they become one picture.
+  </p>
+</header>
+
+<figure>
+  <img src="img/composition.png" alt="The Composition step: the layers panel with a generated layer, and the page in the viewport.">
+  <figcaption>The Layers panel drives everything: visibility, order, rename, duplicate, per-layer path-finding settings (⚙), and occlusion.</figcaption>
+</figure>
+
+<h2>The Layers panel</h2>
+<ul>
+  <li><strong>＋ Path finding / ＋ Generator / ＋ Cavalry</strong> — three layer sources: image-driven strokes, procedural drawings, or a live bridge (below).</li>
+  <li><strong>Checkbox</strong> — visibility. Hidden layers are excluded from export and plot.</li>
+  <li><strong>⚙</strong> — reopens the layer's Path Finding settings; every layer remembers its module + parameters and can regenerate any time.</li>
+  <li><strong>↑ ↓</strong> — stacking order. Later/upper layers draw on top and can occlude below.</li>
+  <li><strong>⧉ / ×</strong> — duplicate / delete. The name field renames.</li>
+  <li><strong>Display</strong> — show a layer as its source raster, its strokes, or both, while you compose.</li>
+</ul>
+
+<h2>Placing layers</h2>
+<p>
+  Drag a layer on the canvas to move it; edges <strong>snap</strong> to the
+  page and to other layers' edges and centers (guide lines flash as you hit
+  them). The toolbar's six <strong>align</strong> buttons align the selected
+  layer to the page: left / center / right, top / middle / bottom. Grab a
+  corner handle to <strong>scale</strong>; pen widths stay true — only the
+  geometry scales.
+</p>
+
+<h2>Crop &amp; masks</h2>
+<p>Two ways to show only part of a layer, both non-destructive:</p>
+<ul>
+  <li><strong>Crop</strong> — a rectangle. <em>To content</em> shrinks it to the drawn geometry; <em>Reset</em> clears it.</li>
+  <li><strong>Mask</strong> — a free shape: <em>Rectangle</em>, <em>Oval</em>, or the <em>Pen</em> tool for a bézier outline (click to place anchors, drag for curves). <em>Edit</em> re-shapes an existing mask; the handles move and resize it on canvas.</li>
+</ul>
+<p>
+  Masks are real geometric clips: exported SVG and the plot contain only the
+  visible strokes, cut exactly at the boundary — no hidden ink.
+</p>
+
+<h2>Occlusion — layers that hide what's behind them</h2>
+<p>
+  Turn on <strong>Occlude below</strong> and a layer erases the strokes of
+  every layer beneath it inside its silhouette — a portrait region cleanly
+  knocked out of the background hatching, no manual masking of the layers
+  below. Region-based layers use their AI-selected outline; whole-image layers
+  use their footprint. The clipping is baked into export and plot.
+</p>
+
+<h2 id="cavalry">Cavalry live bridge</h2>
+<p>
+  <strong>＋ Cavalry</strong> arms a live layer that receives frames from
+  Cavalry (the motion-design app) via the bundled bridge script. In Cavalry,
+  the script panel's button creates a matching A3 composition; every change
+  pushes the current frame straight onto your Plotter Studio page — design in
+  Cavalry, compose and plot here. The layer shows a LIVE badge while
+  connected, and reconnecting after a restart offers to continue the same
+  layer or start a new one.
+</p>
+
+<h2>Importing SVG</h2>
+<p>
+  Drop an <code>.svg</code> on the window (or <em>File → Import image…</em>
+  and pick an SVG): it arrives as a composition layer, normalized to the page
+  in real millimetres. Pixel-based exports (like Cavalry's) are fitted to the
+  page automatically so a 1080&nbsp;px file doesn't try to plot a metre wide.
+</p>
+
+<h2>Pen preview</h2>
+<p>
+  <em>View → Pen width &amp; nib</em> draws every stroke at its true pen
+  width — including the calligraphic broad-nib simulation for flat pens (set
+  nib shape and angle in the Pens panel). Turn it off to inspect raw
+  centrelines.
+</p>
+
+<footer>
+  Next: <a href="plot.html">Pens, paper and plotting →</a>
+</footer>
+
+</div>
+</body>
+</html>
