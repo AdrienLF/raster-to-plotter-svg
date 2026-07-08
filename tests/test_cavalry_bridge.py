@@ -43,6 +43,24 @@ class CavalryScriptContractTest(unittest.TestCase):
         self.assertIn('status.setText("Could not create A3 composition");', self.script)
         self.assertIn("console.error(e);", self.script)
 
+    def test_tessellation_ui_adds_selected_numeric_attributes(self):
+        self.assertIn('var patternName = new ui.LineEdit();', self.script)
+        self.assertIn('var latticePreset = new ui.DropDown();', self.script)
+        self.assertIn(
+            'var addBinding = new ui.Button("Add selected parameter");',
+            self.script,
+        )
+        self.assertIn('api.getSelectedAttributes()', self.script)
+        self.assertIn('api.get(layerId, attrId)', self.script)
+        self.assertIn('new ui.NumericField(value)', self.script)
+        self.assertIn('curve: null', self.script)
+
+    def test_tessellation_ui_exposes_lattice_presets_and_custom_vectors(self):
+        for label in ("Rectangular", "Brick", "Hex/Isometric", "Custom"):
+            self.assertIn(f'latticePreset.addEntry("{label}")', self.script)
+        for key in ("customAx", "customAy", "customBx", "customBy"):
+            self.assertIn(f"var {key} = new ui.NumericField", self.script)
+
 
 class NormalizeSvgToPageTest(unittest.TestCase):
     def test_px_viewbox_fits_a3_page(self):
