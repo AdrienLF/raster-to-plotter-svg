@@ -123,7 +123,7 @@ class ParameterBinding:
     attribute_id: str
     light: float
     dark: float
-    curve: dict | None = None
+    curve: tuple[tuple[str, float], ...] | None = None
 
 
 @dataclass(frozen=True)
