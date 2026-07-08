@@ -4,11 +4,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from engine.geometry import Geometry, Item
 from engine.tessellation import (
     ParameterBinding,
     TessellationPattern,
     TilePath,
     TileState,
+    deduplicate_items,
     render_tessellation,
     state_at_tone,
 )
@@ -120,3 +122,37 @@ def test_render_rejects_absurd_tile_counts():
     huge = Image.new("L", (4000, 4000), 128)
     with pytest.raises(ValueError, match="tile limit"):
         render_tessellation(huge, constant_pattern(), {**VALUES, "columns": 300})
+
+
+def test_duplicate_segments_are_removed_regardless_of_direction():
+    items = [
+        Item(0.2, path=Geometry([(0, 0), (1, 0), (2, 0)])),
+        Item(0.8, path=Geometry([(2, 0), (1, 0)])),
+    ]
+    out = deduplicate_items(items)
+    segments = [
+        tuple(sorted((p0, p1)))
+        for item in out if item.path
+        for p0, p1 in zip(item.path.points, item.path.points[1:])
+    ]
+    assert segments.count(tuple(sorted(((1.0, 0.0), (2.0, 0.0))))) == 1
+    assert segments.count(tuple(sorted(((0.0, 0.0), (1.0, 0.0))))) == 1
+
+
+def test_nearby_but_distinct_segments_survive():
+    items = [
+        Item(0.5, path=Geometry([(0, 0), (1, 0)])),
+        Item(0.5, path=Geometry([(0, 0.01), (1, 0.01)])),
+    ]
+    assert len(deduplicate_items(items, tolerance=1e-4)) == 2
+
+
+def test_deduplicate_rechains_across_epsilon_endpoint_noise():
+    eps = 1e-9
+    items = [
+        Item(0.5, path=Geometry([(0, 0), (1, 0)])),
+        Item(0.5, path=Geometry([(1 + eps, eps), (2, 0)])),
+    ]
+    out = deduplicate_items(items)
+    assert len(out) == 1
+    assert len(out[0].path.points) == 3

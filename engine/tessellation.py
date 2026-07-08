@@ -154,4 +154,33 @@ def render_tessellation(work: Image.Image, pattern: TessellationPattern,
 
 
 def deduplicate_items(items: list[Item], tolerance: float = 1e-6) -> list[Item]:
-    return items
+    """Drop segments drawn more than once (either direction), then rechain.
+
+    Endpoints are snapped to one representative point per tolerance bucket so
+    segments from neighbouring tiles — equal up to float epsilon — compare
+    and weld exactly."""
+    from .chain import chain_items
+
+    def key(point):
+        return tuple(round(float(v) / tolerance) for v in point)
+
+    reps: dict = {}
+    segments: dict = {}
+    for item in items:
+        if item.path is None or len(item.path.points) < 2:
+            continue
+        points = list(item.path.points)
+        if item.path.closed:
+            points.append(points[0])
+        for p0, p1 in zip(points, points[1:]):
+            k0, k1 = key(p0), key(p1)
+            r0 = reps.setdefault(k0, (float(p0[0]), float(p0[1])))
+            r1 = reps.setdefault(k1, (float(p1[0]), float(p1[1])))
+            canonical = (k0, k1) if k0 <= k1 else (k1, k0)
+            segments.setdefault(canonical, []).append((item.lum, r0, r1))
+    survivors = []
+    for occurrences in segments.values():
+        lum, p0, p1 = occurrences[0]
+        if p0 != p1:
+            survivors.append(Item(lum=lum, path=Geometry([p0, p1])))
+    return chain_items(survivors, tol=tolerance)
