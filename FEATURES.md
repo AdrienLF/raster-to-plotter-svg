@@ -14,7 +14,8 @@ A running list of what this software does. One line each. Updated on every commi
 - **Region masks** — Per-region alpha mask applied to the source for isolated path finding.
 
 ## Path Finding Modules (PFMs)
-- **42 PFMs** — Voronoi / LBG / Adaptive / Poisson-disk samplers × Stippling, Dashes, Shapes, Triangulation, Tree, Diagram, TSP styles, plus Grid Halftone, Random Stipple, Spiral, Hatch, Sketch (Lines/Curves/Squares), Streamlines (Flow/Edge/Superformula), Composite (Layers/Mosaic), Dither Halftone (Floyd-Steinberg error diffusion), and Circle Packing.
+- **49 PFMs** — Voronoi / LBG / Adaptive / Poisson-disk samplers × Stippling, Dashes, Shapes, Triangulation, Tree, Diagram, TSP styles, plus Grid Halftone, Random Stipple, Spiral, Hatch, Sketch (Lines/Curves/Squares), Streamlines (Flow/Edge/Superformula), Composite (Layers/Mosaic), Dither Halftone (Floyd-Steinberg error diffusion), Circle Packing, and Tessellations (Isometric Y / Hex Aperture / Truchet Weave / Diamond Lattice).
+- **Raster-driven tessellations** — Four periodic vector patterns morph their geometry from each tile's average source tone. Scale, rotation, phase, response, inversion, and duplicate-edge cleanup remain editable per layer.
 - **Poisson-disk sampler** — Blue-noise dart-throwing with a hard minimum-distance guarantee (`engine/sampling.py`), unlike the probabilistic thinning `Adaptive` uses; reuses all 7 styles like Voronoi/LBG/Adaptive.
 - **Schema-driven params** — Every PFM's controls auto-generated from a typed schema (`engine/params.py`).
 - **GPU acceleration** — Torch (MPS/CUDA) for nearest-site / weighted-centroid stages; numpy/scipy CPU fallback. Active backend shown in status bar.

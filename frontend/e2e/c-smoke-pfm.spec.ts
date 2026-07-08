@@ -1,11 +1,12 @@
 /**
- * C7 / C8 — PFM smoke matrix.
+ * C7 / C8 / C9 — PFM smoke matrix.
  *
  * Each test verifies one representative Path Finding Module produces non-empty
  * SVG geometry. Tests are API-level (no browser) for speed and isolation.
  *
  * C7: sampler-family × style matrix (voronoi, lbg, adaptive × stippling, shapes, tsp…)
  * C8: custom PFMs (spiral, hatch, sketch_lines, grid_halftone, streamlines_flow_field)
+ * C9: tessellation family (geometry + schema + picker preview asset)
  */
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -76,3 +77,14 @@ for (const [pfmId, params] of CUSTOM_CASES) {
     await assertGeometry(request, baseURL!, layerId, pfmId, params);
   });
 }
+
+// ── C9: Tessellation family ──────────────────────────────────────────────────
+test("C9: tessellation styles render with schema and preview", async ({ request, baseURL }) => {
+  const pfmId = "tessellation_isometric_y";
+  const { layerId } = await setupPfmLayer(request, baseURL!, pfmId);
+  await assertGeometry(request, baseURL!, layerId, pfmId, { columns: 8 });
+  const schema = await (await request.get(`${baseURL}/api/pfm/${pfmId}/schema`)).json();
+  expect(schema.params.map((p: { name: string }) => p.name)).toContain("tone_response");
+  const preview = await request.get(`${baseURL}/static/pfm-previews/${pfmId}.png`);
+  expect(preview.ok(), "tessellation preview should exist").toBeTruthy();
+});
