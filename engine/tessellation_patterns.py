@@ -31,20 +31,30 @@ def _states(factory) -> tuple[TileState, ...]:
 
 
 def _isometric_y(t):
-    inner = 0.08 + 0.24 * t
-    outer = 0.52
-    paths = []
+    # One closed Y-block outline: three chevron-tipped arms joined at armpit
+    # crotches. Arms from the three tiles around each triangular hole aim at
+    # its centroid, 1/sqrt(3) lattice units from every tile centre; light
+    # tiles interlock there while dark tiles thin out and pull back, opening
+    # the triangular gaps seen in the reference weave.
+    w = 0.26 - 0.16 * t
+    outer = 1.0 / math.sqrt(3.0) - 0.10 * t
+    corner = outer - w / math.tan(math.radians(60))
+    crotch = w / math.sin(math.radians(60))
+    points = []
+    seams = []
     for angle in (-90, 30, 150):
         a = math.radians(angle)
-        tangent = (-math.sin(a) * (0.05 + 0.05 * t),
-                   math.cos(a) * (0.05 + 0.05 * t))
-        start = (0.5 + inner * math.cos(a), 0.5 + inner * math.sin(a))
-        end = (0.5 + outer * math.cos(a), 0.5 + outer * math.sin(a))
-        paths.append(_poly(((start[0] + tangent[0], start[1] + tangent[1]),
-                            (end[0] + tangent[0], end[1] + tangent[1]),
-                            (end[0] - tangent[0], end[1] - tangent[1]),
-                            (start[0] - tangent[0], start[1] - tangent[1])), True))
-    return TileState(tuple(paths))
+        dx, dy = math.cos(a), math.sin(a)
+        px, py = -dy, dx
+        bis = math.radians(angle - 60)
+        armpit = (0.5 + crotch * math.cos(bis), 0.5 + crotch * math.sin(bis))
+        points.append(armpit)
+        points.append((0.5 + corner * dx - w * px, 0.5 + corner * dy - w * py))
+        points.append((0.5 + outer * dx, 0.5 + outer * dy))
+        points.append((0.5 + corner * dx + w * px, 0.5 + corner * dy + w * py))
+        # Internal facet seam of the 3D block: centre vertex to each crotch.
+        seams.append(_poly(((0.5, 0.5), armpit)))
+    return TileState((_poly(points, True), *seams))
 
 
 def _hex_aperture(t):
