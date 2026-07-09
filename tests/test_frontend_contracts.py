@@ -166,6 +166,17 @@ class FrontendContractsTest(unittest.TestCase):
             "POST /api/tessellations/sessions", "GET /api/tessellations",
         ):
             self.assertIn(text, guide)
+        manual_home = (ROOT / "web/static/docs/index.html").read_text(encoding="utf-8")
+        manual_path = ROOT / "web/static/docs/tessellations.html"
+        self.assertIn('href="tessellations.html"', manual_home)
+        self.assertTrue(manual_path.is_file())
+        manual = manual_path.read_text(encoding="utf-8")
+        for text in (
+            "Bake a pattern in Cavalry", "Add selected parameter", "Light", "Dark",
+            "Rectangular", "Brick", "Hex/Isometric", "Custom", "Bake tessellation",
+            "Apply / Regenerate", "Your original Cavalry values are restored",
+        ):
+            self.assertIn(text, manual)
 
     def test_project_actions_invalidate_older_async_work_and_report_failures(self):
         api_ts = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")

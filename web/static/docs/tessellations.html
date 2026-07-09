@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cavalry tessellations · Plotter Studio Manual</title>
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="crumbs"><a href="index.html">Manual</a> › Cavalry tessellations</nav>
+
+<header class="hero">
+  <div class="kicker">Plotter Studio · Manual</div>
+  <h1>Bake a pattern in Cavalry</h1>
+  <p class="lede">
+    Draw one repeat unit in Cavalry, choose which numeric parameters should
+    react to tone, and bake it into a reusable Plotter Studio tessellation.
+    Studio then tiles those vector states across any image and chooses the
+    light or dark version from the image tone.
+  </p>
+</header>
+
+<div class="cards">
+  <div class="card"><strong>One repeat unit</strong><p>Make the tile you want repeated, not a whole page. The active Cavalry composition is the tile bounds.</p></div>
+  <div class="card"><strong>32 tone states</strong><p>The bridge renders 32 SVG snapshots from light to dark. Studio picks between them per tile.</p></div>
+</div>
+
+<h2>The idea</h2>
+<p>
+  A tessellation is a pattern that repeats on a lattice. In this workflow,
+  Cavalry draws the vocabulary of one tile and Plotter Studio decides where
+  each tile lands on the page. Your source image supplies the tone: light areas
+  use the lightest baked states, dark areas use the darkest states, and midtones
+  use the states in between.
+</p>
+<p>
+  The most useful setup is a small Cavalry composition containing one tile and
+  one or more selected numeric attributes. For each selected attribute you set a
+  <strong>Light</strong> value and a <strong>Dark</strong> value. The bridge
+  moves every linked value together across 32 steps, renders each step as SVG,
+  and installs the result as a Studio style.
+</p>
+
+<h2>Workflow</h2>
+<ol class="steps">
+  <li><strong>Start Plotter Studio.</strong> The bridge sends everything to the local server at <code>http://localhost:7438</code>.</li>
+  <li><strong>Install the bridge in Cavalry.</strong> In Cavalry, open <em>Help → Show Scripts Folder</em>, copy <code>cavalry/plotter-bridge.js</code> there, then run it from <em>Window → Scripts → plotter-bridge</em>.</li>
+  <li><strong>Prepare one repeat unit.</strong> Work in the active Cavalry composition. Use a disposable or clean composition when testing; the tile bounds come from that composition's resolution.</li>
+  <li><strong>Name the pattern.</strong> In the bridge's <em>Tessellation</em> section, fill in <strong>Name</strong>. Use a visible name between 1 and 80 characters.</li>
+  <li><strong>Bind a parameter.</strong> Select exactly one numeric Cavalry attribute, then click <strong>Add selected parameter</strong>. The bridge adds a row with <strong>Light</strong> and <strong>Dark</strong> values.</li>
+  <li><strong>Set Light and Dark.</strong> Light is the value used by the lightest image tones; Dark is the value used by the darkest tones. Add more selected parameters if the tile should morph in several ways at once.</li>
+  <li><strong>Choose the lattice.</strong> Pick <strong>Rectangular</strong>, <strong>Brick</strong>, <strong>Hex/Isometric</strong>, or <strong>Custom</strong>. Set W and H, or the custom A/B vectors.</li>
+  <li><strong>Bake it.</strong> Click <strong>Bake tessellation</strong>. The progress bar counts from 1 to 32 while Cavalry renders the states. Your original Cavalry values are restored after success or failure.</li>
+  <li><strong>Use it in Studio.</strong> Add or edit a path-finding layer, choose the new style in the <em>Tessellation</em> family, tune the Studio controls, and click <strong>Apply / Regenerate</strong>.</li>
+</ol>
+
+<div class="note">
+  The Cavalry bake creates the pattern language. Studio controls remain live, so
+  you can change scale, rotation, phase, tone response, inversion and duplicate
+  cleanup without rebaking.
+</div>
+
+<h2>Lattice presets</h2>
+<table>
+  <tr><th>Preset</th><th>What it does</th><th>Good for</th></tr>
+  <tr><td>Rectangular</td><td>Repeats the tile in straight rows and columns.</td><td>Grids, wallpaper repeats, simple mechanical patterns.</td></tr>
+  <tr><td>Brick</td><td>Offsets each row by half the tile width.</td><td>Masonry, woven marks, scales, staggered organic rhythms.</td></tr>
+  <tr><td>Hex/Isometric</td><td>Uses a half-width offset and an isometric-height second axis.</td><td>Triangular rhythms, hex-like texture, dimensional tiling.</td></tr>
+  <tr><td>Custom</td><td>Uses your custom A and B repeat vectors.</td><td>Slanted repeats, experimental lattices, precise Cavalry layouts.</td></tr>
+</table>
+
+<h2>Studio controls</h2>
+<table>
+  <tr><th>Control</th><th>What to adjust</th></tr>
+  <tr><td>Columns</td><td>How many repeats fit across the page width. Raise it for smaller, denser tiles.</td></tr>
+  <tr><td>Rotation</td><td>Rotates the whole lattice around the page.</td></tr>
+  <tr><td>Phase X/Y</td><td>Slides the pattern along the first and second lattice axes, useful for lining a motif up with the image.</td></tr>
+  <tr><td>Tone Response</td><td>Bends the source-image tone before state selection. Higher values hold onto lighter states longer.</td></tr>
+  <tr><td>Invert Tone</td><td>Swaps the light and dark ends of the baked state range.</td></tr>
+  <tr><td>Remove Duplicate Lines</td><td>Removes shared tile edges and welds the rest into longer strokes for cleaner plotting.</td></tr>
+</table>
+
+<h2>Rebaking safely</h2>
+<p>
+  Rebake when you need to change the Cavalry artwork, selected attributes, Light
+  and Dark endpoints, or lattice vectors. Reusing the same pattern name replaces
+  the installed style. Already generated layers keep their cached SVG, so you
+  can compare an old result with a new bake by saving versions before you
+  regenerate.
+</p>
+<p>
+  Your original Cavalry values are restored at the end of the bake, even when
+  the server rejects a state or the bridge reports an error. If the script says
+  the server is offline, start Studio and bake again; if a package is missing
+  later, reinstall or rebake before regenerating layers that use it.
+</p>
+
+<h2>Troubleshooting</h2>
+<table>
+  <tr><th>Problem</th><th>What to do</th></tr>
+  <tr><td>Selection error</td><td>Select exactly one Cavalry attribute before clicking <strong>Add selected parameter</strong>. The bridge reads the active selection, not the layer list.</td></tr>
+  <tr><td>Non-numeric attribute</td><td>Only finite numeric attributes can be baked. Choose a numeric control such as position, rotation, scale, radius, opacity or a numeric effect parameter.</td></tr>
+  <tr><td>Invalid vectors</td><td>Use finite lattice values. For <strong>Custom</strong>, A and B must point in different directions; collinear vectors cannot tile a plane.</td></tr>
+  <tr><td>Server failure</td><td>Confirm Studio is running on port 7438. If an upload fails, the bridge restores Cavalry values and you can bake again.</td></tr>
+  <tr><td>Missing style</td><td>Open the Path Finding style browser and look under <em>Tessellation</em>. If it is not there, rebake and watch for the bridge's installed message.</td></tr>
+  <tr><td>Missing-package regeneration</td><td>Existing cached SVG can still appear in an opened project, but regeneration needs the package under Studio's local tessellation store. Reinstall or rebake that pattern.</td></tr>
+</table>
+
+<h2>Smoke checklist</h2>
+<p>
+  When you have real Cavalry available, use a disposable composition and check
+  these five cases before relying on a new bridge or server build:
+</p>
+<ol class="steps">
+  <li><strong>One-parameter bake:</strong> bind one numeric attribute, use distinct Light and Dark values, and confirm the installed pattern changes with image tone.</li>
+  <li><strong>Multi-parameter bake:</strong> bind two numeric attributes and confirm both original Cavalry values return after the bake.</li>
+  <li><strong>Preset sweep:</strong> bake or preview Rectangular, Brick, Hex/Isometric and Custom vectors with visible tile offsets.</li>
+  <li><strong>Failure recovery:</strong> stop Studio or force a rejected state, then confirm Cavalry values are restored and no half-installed pattern appears.</li>
+  <li><strong>Studio regeneration:</strong> choose the custom Tessellation style, adjust Columns, Tone Response and Remove Duplicate Lines, then click Apply / Regenerate.</li>
+</ol>
+
+<footer>
+  Plotter Studio manual · <a href="index.html">Manual home</a> ·
+  <a href="create.html">Creating strokes</a> ·
+  <a href="fields.html">Fields</a>
+</footer>
+
+</div>
+</body>
+</html>
