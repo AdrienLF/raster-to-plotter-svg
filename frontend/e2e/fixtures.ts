@@ -6,7 +6,7 @@ import type { CompositionT } from "../src/lib/types";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const ASSETS = join(HERE, "assets");
-const PERF_FILE = join(HERE, "perf", "results.jsonl");
+const PERF_FILE = process.env.PLOTTER_PERF_FILE || join(HERE, "perf", "results.jsonl");
 export const DRAWING_SHAPE = /<(?:[A-Za-z_][\w.-]*:)?(?:path|line|polyline|circle)(?=[\s/>])/;
 const BOOT_ATTEMPT_TIMEOUT = 10_000;
 
@@ -227,7 +227,16 @@ export async function gotoGenGroup(page: Page, name: string) {
 
 // ── Perf recorder fixture ────────────────────────────────────────────────────
 
-export type PerfRecord = { story: string; pfm?: string; duration_ms: number; shapes?: number };
+export type PerfRecord = {
+  story: string;
+  duration_ms: number;
+  pfm?: string;
+  shapes?: number;
+  workload?: string;
+  fixture?: string;
+  backend?: string;
+  metrics?: Record<string, string | number | boolean>;
+};
 export type RecordPerf = (rec: PerfRecord) => void;
 
 export const test = base.extend<{ recordPerf: RecordPerf }>({
