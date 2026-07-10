@@ -9,6 +9,7 @@ import sys
 from time import perf_counter_ns
 import tracemalloc
 
+from .gpu import backend_session
 from .model import Environment, Sample
 from .workload import Workload, WorkloadCase, WorkloadOutput
 
@@ -93,10 +94,17 @@ def _error_sample(workload: Workload, case: WorkloadCase | None,
     )
 
 
-def _time_once(workload: Workload, case: WorkloadCase) -> tuple[WorkloadOutput, float]:
+def _time_once(workload: Workload, case: WorkloadCase, session,
+               requires_gpu: bool) -> tuple[WorkloadOutput, float]:
+    """Time one run with the GPU queue drained on both sides of the clock."""
+    session.reset_usage()
+    session.synchronize()
     start = perf_counter_ns()
     output = workload.run(case)
+    session.synchronize()
     duration_ms = (perf_counter_ns() - start) / 1_000_000
+    if requires_gpu:
+        session.assert_gpu_used()
     workload.validate(output)
     return output, duration_ms
 
@@ -105,7 +113,15 @@ def execute_workload(workload: Workload, environment: Environment, warmups: int,
                      repeats: int, diagnostics: bool, artifact_dir: Path,
                      requested_backend: str = "cpu",
                      sample_kind: str = "warm") -> list[Sample]:
-    artifact_dir = Path(artifact_dir)
+    with backend_session(requested_backend) as session:
+        return _measure(workload, environment, warmups, repeats, diagnostics,
+                        Path(artifact_dir), requested_backend, sample_kind, session)
+
+
+def _measure(workload: Workload, environment: Environment, warmups: int,
+             repeats: int, diagnostics: bool, artifact_dir: Path,
+             requested_backend: str, sample_kind: str, session) -> list[Sample]:
+    requires_gpu = requested_backend == "gpu"
     try:
         case = workload.prepare()
     except Exception as exc:
@@ -121,7 +137,7 @@ def execute_workload(workload: Workload, environment: Environment, warmups: int,
     samples: list[Sample] = []
     for index in range(repeats):
         try:
-            output, duration_ms = _time_once(workload, case)
+            output, duration_ms = _time_once(workload, case, session, requires_gpu)
             samples.append(_sample(workload, case, environment, "timing", sample_kind,
                                    index, duration_ms, output, None, {}, {}))
         except Exception as exc:
@@ -133,20 +149,28 @@ def execute_workload(workload: Workload, environment: Environment, warmups: int,
         try:
             artifact_dir.mkdir(parents=True, exist_ok=True)
             profile_path = artifact_dir / f"{workload.id}.prof"
+            trace_path = artifact_dir / f"{workload.id}.trace.json"
+
             profiler = cProfile.Profile()
-            output = profiler.runcall(workload.run, case)
+            session.synchronize()
+            with session.diagnostic_trace(trace_path):
+                output = profiler.runcall(workload.run, case)
+                session.synchronize()
             workload.validate(output)
             profiler.dump_stats(profile_path)
 
+            session.reset_memory()
             tracemalloc.start()
+            session.synchronize()
             start = perf_counter_ns()
             output = workload.run(case)
+            session.synchronize()
             duration_ms = (perf_counter_ns() - start) / 1_000_000
             _current, peak = tracemalloc.get_traced_memory()
             tracemalloc.stop()
             workload.validate(output)
             samples.append(_sample(workload, case, environment, "memory", sample_kind, 0,
-                                   duration_ms, output, peak, {},
+                                   duration_ms, output, peak, session.memory_snapshot(),
                                    {"cpu_profile": str(profile_path)}))
         except Exception as exc:
             if tracemalloc.is_tracing():
@@ -163,14 +187,14 @@ def execute_request(request: WorkerRequest, artifact_dir: Path) -> list[Sample]:
     from .workload import get_workload
 
     workload = get_workload(request.workload_id)
-    environment = collect_environment(
-        request.requested_backend, request.requested_backend, workload.metadata, {},
-    )
-    return execute_workload(
-        workload, environment, request.warmups, request.repeats,
-        request.diagnostics, artifact_dir, request.requested_backend,
-        request.sample_kind,
-    )
+    with backend_session(request.requested_backend) as session:
+        environment = collect_environment(
+            request.requested_backend, session.actual_backend,
+            workload.metadata, session.metadata(),
+        )
+        return _measure(workload, environment, request.warmups, request.repeats,
+                        request.diagnostics, Path(artifact_dir),
+                        request.requested_backend, request.sample_kind, session)
 
 
 def _write_atomic(path: Path, payload: str) -> None:
