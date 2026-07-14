@@ -121,7 +121,7 @@ def _svg_document(width: float, height: float, body: str) -> str:
 class CompositionLayer:
     id: str
     name: str
-    kind: str
+    kind: str                     # "svg" | "pathfinding" | "generate" | "raster"
     visible: bool = True
     x: float = 0.0
     y: float = 0.0
@@ -133,6 +133,8 @@ class CompositionLayer:
     crop: dict | None = None
     mask: dict | None = None
     scale: float = 1.0
+    rotation: float = 0.0         # degrees, about the layer content centre
+    image_path: str = ""          # raster layers: image file relative to project dir
     region_id: str | None = None
     display_mode: str = "pathfinding"
     occlude_below: bool = False
@@ -155,6 +157,8 @@ class CompositionLayer:
             "crop": self.crop,
             "mask": self.mask,
             "scale": self.scale,
+            "rotation": self.rotation,
+            "image_path": self.image_path,
             "region_id": self.region_id,
             "display_mode": self.display_mode,
             "occlude_below": self.occlude_below,
@@ -183,6 +187,8 @@ class CompositionLayer:
             crop=data.get("crop") or None,
             mask=data.get("mask") or None,
             scale=float(data.get("scale", 1) or 1),
+            rotation=float(data.get("rotation", 0) or 0),
+            image_path=str(data.get("image_path") or ""),
             region_id=data.get("region_id") or None,
             display_mode=str(data.get("display_mode") or "pathfinding"),
             occlude_below=bool(data.get("occlude_below", False)),
@@ -211,6 +217,24 @@ class Composition:
             height=height,
             svg=svg,
             source=dict(source or {}),
+        )
+        self.layers.append(layer)
+        self.selected_layer_id = layer.id
+        return layer
+
+    def add_raster_layer(self, name: str, width_mm: float, height_mm: float,
+                         source: dict) -> CompositionLayer:
+        """An imported image as a freely transformable layer. The raster bytes
+        live on disk (``image_path``, set by the caller once the id exists);
+        ``svg`` stays empty until pathfinding generates strokes for it."""
+        layer = CompositionLayer(
+            id=uuid.uuid4().hex[:10],
+            name=name,
+            kind="raster",
+            width=float(width_mm),
+            height=float(height_mm),
+            source=dict(source or {}),
+            display_mode="raster",
         )
         self.layers.append(layer)
         self.selected_layer_id = layer.id
@@ -315,6 +339,8 @@ def effective_bounds(layer: CompositionLayer) -> dict:
 
 def _layer_body(layer: CompositionLayer, exclude_masks: list[dict] | None = None) -> str:
     """Inner SVG for a layer: raw when unclipped, baked when crop/mask present."""
+    if not layer.svg.strip():
+        return ""  # raster layers before any pathfinding generation
     if layer.crop or layer.mask or exclude_masks:
         from . import layer_clip
 
@@ -327,7 +353,34 @@ def _layer_transform(layer: CompositionLayer) -> str:
     s = float(layer.scale or 1)
     if s != 1:
         tf += f" scale({_fmt(s)})"
+    r = float(layer.rotation or 0)
+    if r:
+        # About the content centre, in layer-local units (after the scale).
+        tf += f" rotate({_fmt(r)} {_fmt(layer.width / 2)} {_fmt(layer.height / 2)})"
     return tf
+
+
+def rotated_page_bounds(layer: CompositionLayer) -> dict:
+    """Axis-aligned page-mm bbox of the layer's (possibly rotated) bounds."""
+    b = effective_bounds(layer)
+    r = float(layer.rotation or 0)
+    if not r:
+        return b
+    import math
+
+    s = float(layer.scale or 1)
+    cx = layer.x + s * layer.width / 2
+    cy = layer.y + s * layer.height / 2
+    cos_r, sin_r = math.cos(math.radians(r)), math.sin(math.radians(r))
+    xs, ys = [], []
+    for px, py in ((b["x"], b["y"]), (b["x"] + b["width"], b["y"]),
+                   (b["x"], b["y"] + b["height"]),
+                   (b["x"] + b["width"], b["y"] + b["height"])):
+        dx, dy = px - cx, py - cy
+        xs.append(cx + dx * cos_r - dy * sin_r)
+        ys.append(cy + dx * sin_r + dy * cos_r)
+    return {"x": min(xs), "y": min(ys),
+            "width": max(xs) - min(xs), "height": max(ys) - min(ys)}
 
 
 def _rect_to_page(layer: CompositionLayer, rect: dict) -> dict:
@@ -510,6 +563,8 @@ def compose_visible_svg(comp: Composition, on_progress=None) -> str:
     visible = [layer for layer in comp.layers if layer.visible]
     total = len(visible)
     baked = _strokes_occlusion_bodies(visible)
+    page_w, page_h = comp.page["width"], comp.page["height"]
+    needs_page_clip = False
     for index, layer in enumerate(visible):
         if on_progress:
             on_progress(index, total)
@@ -519,11 +574,29 @@ def compose_visible_svg(comp: Composition, on_progress=None) -> str:
             exclude_masks = _upper_occlusion_masks(visible, index,
                                                    skip_strokes=bool(baked))
             layer_body = _layer_body(layer, exclude_masks)
-        body.append(
+        # A layer dragged (partly) off the page keeps overflowing freely in the
+        # preview, but its plotted/exported geometry must stay on the page.
+        rb = rotated_page_bounds(layer)
+        clipped = bool(layer_body.strip()
+                       and (rb["x"] < -1e-6 or rb["y"] < -1e-6
+                            or rb["x"] + rb["width"] > page_w + 1e-6
+                            or rb["y"] + rb["height"] > page_h + 1e-6))
+        needs_page_clip = needs_page_clip or clipped
+        group = (
             f'<g data-layer-id="{_attr(layer.id)}" data-layer-name="{_attr(layer.name)}" '
             f'transform="{_layer_transform(layer)}">'
             f"{layer_body}</g>"
         )
+        if clipped:
+            # An outer group so the clip resolves in page mm, untouched by the
+            # layer transform (clip-path on the transformed group would rotate
+            # and scale the page rect along with the content).
+            group = f'<g clip-path="url(#page-clip)">{group}</g>'
+        body.append(group)
+    if needs_page_clip:
+        body.insert(0, (f'<defs><clipPath id="page-clip" clipPathUnits="userSpaceOnUse">'
+                        f'<rect x="0" y="0" width="{_fmt(page_w)}" '
+                        f'height="{_fmt(page_h)}"/></clipPath></defs>'))
     if on_progress:
         on_progress(total, total)
     return _svg_document(comp.page["width"], comp.page["height"], "\n".join(body))

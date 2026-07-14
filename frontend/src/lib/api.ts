@@ -594,6 +594,8 @@ export const api = {
       studio.regions = [];
       studio.selectedRegionId = null;
       this.clearRegionDraft();
+      // The import also created a raster layer, fitted into the drawing area.
+      if (j.composition) this.applyComposition(j);
       studio.status = "Ready";
       pushLog(`Loaded image ${j.name} (${j.width}×${j.height})`);
     } catch (e) {

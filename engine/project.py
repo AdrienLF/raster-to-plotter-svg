@@ -122,8 +122,16 @@ class Project:
             if not layer.svg_path:
                 layer.svg_path = f"layers/{layer.id}.svg"
             (self.dir / layer.svg_path).write_text(layer.svg)
-        for path in self.layers_dir.glob("*.svg"):
-            if path.stem not in active_ids:
+        # Remove files (SVG bodies and raster-layer images) of deleted layers.
+        # A duplicated raster layer shares its original's image file, so keep
+        # any file still referenced by a live layer's image_path.
+        referenced = {
+            Path(layer.image_path).name
+            for layer in self.composition.layers
+            if getattr(layer, "image_path", "")
+        }
+        for path in self.layers_dir.glob("*.*"):
+            if path.stem not in active_ids and path.name not in referenced:
                 path.unlink()
         self.save()
 
@@ -276,6 +284,23 @@ class Project:
         ip = self.image_path
         if ip and ip.exists():
             with Image.open(ip) as image:
+                return image.copy()
+        return None
+
+    # ── raster layers ─────────────────────────────────────────────────────────
+    def set_layer_image(self, layer, data: bytes, filename: str) -> None:
+        """Persist an imported image as a raster layer's own file."""
+        self.ensure_dirs()
+        suffix = Path(filename).suffix.lower() or ".png"
+        layer.image_path = f"layers/{layer.id}{suffix}"
+        (self.dir / layer.image_path).write_bytes(data)
+        self.save()
+
+    def open_layer_image(self, layer) -> Image.Image | None:
+        rel = getattr(layer, "image_path", "")
+        path = (self.dir / rel) if rel else None
+        if path and path.exists():
+            with Image.open(path) as image:
                 return image.copy()
         return None
 

@@ -58,6 +58,48 @@
     if (contentSize?.h) applyScale(value / contentSize.h);
   }
 
+  async function setRotation(value: number) {
+    const layer = studio.selectedLayer;
+    if (!layer || !Number.isFinite(value)) return;
+    layer.rotation = ((value % 360) + 360) % 360;
+    await api.patchLayer(layer.id, { rotation: layer.rotation });
+  }
+
+  // The drawable region inside the page padding, in mm.
+  function innerRect() {
+    const page = studio.composition.page;
+    const a = studio.area;
+    const f = ({ mm: 1, cm: 10, in: 25.4, px: 25.4 / 96 } as Record<string, number>)[
+      a?.units ?? "mm"
+    ] ?? 1;
+    const l = (a?.pad_left ?? 0) * f;
+    const t = (a?.pad_top ?? 0) * f;
+    const r = (a?.pad_right ?? 0) * f;
+    const b = (a?.pad_bottom ?? 0) * f;
+    return {
+      x: l,
+      y: t,
+      w: Math.max(1, page.width - l - r),
+      h: Math.max(1, page.height - t - b),
+    };
+  }
+
+  // Scale the layer to the drawing area and centre it: "fit" letterboxes
+  // (whole layer visible), "fill" covers (overflow is clipped at export).
+  async function fitToArea(mode: "fit" | "fill") {
+    const layer = studio.selectedLayer;
+    const size = contentSize;
+    if (!layer || !size?.w || !size?.h) return;
+    const rect = innerRect();
+    const s = mode === "fit"
+      ? Math.min(rect.w / size.w, rect.h / size.h)
+      : Math.max(rect.w / size.w, rect.h / size.h);
+    layer.scale = s;
+    layer.x = rect.x + (rect.w - s * size.w) / 2 - s * (layer.crop?.x || 0);
+    layer.y = rect.y + (rect.h - s * size.h) / 2 - s * (layer.crop?.y || 0);
+    await api.patchLayer(layer.id, { scale: s, x: layer.x, y: layer.y });
+  }
+
   async function remove(id: string) {
     await api.deleteLayer(id);
   }
@@ -224,9 +266,23 @@
           onchange={(v) => applyScale(v / 100)}
         />
       </div>
+      <div class="f">
+        <label for="layer-rotation">Rotate °</label>
+        <NumStep
+          id="layer-rotation"
+          step={1}
+          value={Math.round((studio.selectedLayer.rotation ?? 0) * 10) / 10}
+          onchange={(v) => setRotation(v)}
+        />
+      </div>
     </div>
 
     <div class="tools">
+      <div class="row">
+        <span class="lbl" title="Scale and centre this layer relative to the drawing area (inside the page padding)">Area</span>
+        <button title="Whole layer visible inside the drawing area" onclick={() => fitToArea("fit")}>Fit</button>
+        <button title="Cover the drawing area; overflow is clipped when exporting/plotting" onclick={() => fitToArea("fill")}>Fill</button>
+      </div>
       <div class="row">
         <span class="lbl">Crop</span>
         <button onclick={() => api.cropToContent(studio.selectedLayer!.id)}>To content</button>

@@ -970,6 +970,10 @@
             style:top={`${eb.y * PX_PER_MM}px`}
             style:width={`${eb.width * PX_PER_MM}px`}
             style:height={`${eb.height * PX_PER_MM}px`}
+            style:transform={layer.rotation ? `rotate(${layer.rotation}deg)` : undefined}
+            style:transform-origin={layer.rotation
+              ? `${(layer.x + (layer.scale || 1) * (layer.width / 2) - eb.x) * PX_PER_MM}px ${(layer.y + (layer.scale || 1) * (layer.height / 2) - eb.y) * PX_PER_MM}px`
+              : undefined}
             onpointerdown={(e) => startPlacement(e, layer.id)}
             role="application"
             aria-label={`Layer ${layer.name}`}
@@ -1185,7 +1189,9 @@
   }
   .page {
     position: relative;
-    overflow: hidden;
+    /* Layers moved (partly) off the page stay visible and grabbable; export
+       and plot clip to the page instead (compose emits a page clip-path). */
+    overflow: visible;
     box-shadow: 0 0 0 1px #000, 0 8px 40px rgba(0, 0, 0, 0.5);
   }
   .page.placing {

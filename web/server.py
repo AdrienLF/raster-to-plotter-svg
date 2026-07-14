@@ -2302,6 +2302,8 @@ def api_composition_layer(layer_id):
         layer.y = float(data['y'])
     if 'scale' in data:
         layer.scale = max(0.01, float(data['scale']))
+    if 'rotation' in data:
+        layer.rotation = float(data['rotation'] or 0) % 360.0
     if 'crop' in data:
         layer.crop = _validate_crop(data['crop'])
     if 'mask' in data:
@@ -2510,6 +2512,13 @@ def api_composition_layer_raster(layer_id):
     layer = _layer_by_id(layer_id)
     if not layer:
         return jsonify(error='Unknown layer'), 404
+    if layer.kind == 'raster' and layer.image_path:
+        # Raster layers own their image: serve it raw (uncropped); the layer
+        # transform positions it in the viewport.
+        path = _project.dir / layer.image_path
+        if not path.exists():
+            return jsonify(error='Layer image missing'), 404
+        return send_file(path)
     region_id = layer.region_id or (layer.source or {}).get('region_id')
     image = _project.open_region_image(region_id) if region_id else _project.open_image()
     if image is None:
@@ -2523,8 +2532,33 @@ def api_composition_layer_raster(layer_id):
     buf.seek(0)
     return send_file(buf, mimetype='image/png')
 
+def _layer_drawing_area(layer):
+    """A synthetic DrawingArea matching a raster layer's own content size, so a
+    PFM generates in layer-local mm: strokes then move/scale/rotate with the
+    image via the layer transform, and the source is never cropped. Dividing
+    the pen width by the layer scale keeps stroke density correct on the page
+    after the transform is applied."""
+    base = _project.area
+    w = max(1.0, float(layer.width or 1.0))
+    h = max(1.0, float(layer.height or 1.0))
+    s = max(0.01, float(layer.scale or 1.0))
+    return DrawingArea(
+        units='mm', width=w, height=h,
+        orientation='landscape' if w > h else 'portrait',
+        scaling_mode='stretch',  # layer w/h keep the image aspect: identity fit
+        rescale_to_pen_width=base.rescale_to_pen_width,
+        rescale_mode=base.rescale_mode,
+        pen_width_mm=max(0.05, base.pen_width_mm) / s,
+        canvas_colour=base.canvas_colour,
+        background_colour=base.background_colour,
+        clipping=base.clipping,
+    )
+
+
 def _generate_pathfinding_for_layer(layer, data, wide=None):
-    if _project.image_path is None or not _project.image_path.exists():
+    is_raster_layer = layer.kind == 'raster' and bool(layer.image_path)
+    if not is_raster_layer and (
+            _project.image_path is None or not _project.image_path.exists()):
         return None, ('No image loaded', 400)
     style = _normalize_pathfinding_style(layer.pathfinding_style)
     pfm_id = data.get('pfm_id') or style.get('pfm_id') or _project.pfm_id
@@ -2539,6 +2573,8 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
         region_id = data.get('region_id') or None
     else:
         region_id = layer.region_id or (layer.source or {}).get('region_id')
+    if is_raster_layer:
+        region_id = None  # regions are masks on the project source image
     region = _project.get_region(region_id) if region_id else None
     if region_id and region is None:
         return None, (f'Unknown region {region_id!r}', 404)
@@ -2558,7 +2594,12 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
         wide.set(pfm_id=pfm_id, region_id=region_id or '-', seed=seed,
                  params=_params_summary(params), backend=accel.backend_name())
     # No region -> the effect runs on the whole layer image.
-    img = _project.open_region_image(region_id) if region else _project.open_image()
+    if is_raster_layer:
+        img = _project.open_layer_image(layer)
+        gen_area = _layer_drawing_area(layer)
+    else:
+        img = _project.open_region_image(region_id) if region else _project.open_image()
+        gen_area = _project.area
     if img is None:
         return None, ('No image available', 404)
     draft = bool(data.get('draft'))
@@ -2573,7 +2614,7 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
         'error': '',
     }
     on_progress = wide.wrap_progress() if wide is not None else None
-    drawing = pfm.run(img, _project.area, _project.drawing_set, params, seed=seed,
+    drawing = pfm.run(img, gen_area, _project.drawing_set, params, seed=seed,
                       on_progress=on_progress, paint_loader=_project.open_field_mask,
                       draft=draft)
     if wide is not None:
@@ -2584,18 +2625,33 @@ def _generate_pathfinding_for_layer(layer, data, wide=None):
             pass
     svg = svg_io.to_svg(drawing)
     layer.svg = svg
-    layer.width, layer.height = parse_svg_size_mm(svg)
-    layer.kind = 'pathfinding'
-    layer.region_id = region.id if region else None
-    layer.display_mode = _normalize_display_mode(data.get('display_mode') or layer.display_mode)
-    layer.source = {
-        'pfm_id': pfm_id,
-        'params': params,
-        'area': _project.area.to_dict(),
-        'drawing_set': _project.drawing_set.to_dict(),
-        'region_id': region.id if region else None,
-        'region_name': region.name if region else None,
-    }
+    if is_raster_layer:
+        # The strokes live in layer-local mm: the layer keeps its raster
+        # identity, size and transform, and the svg rides along with them.
+        if not data.get('display_mode') and layer.display_mode == 'raster':
+            layer.display_mode = 'both'
+        else:
+            layer.display_mode = _normalize_display_mode(
+                data.get('display_mode') or layer.display_mode)
+        layer.source = {
+            **layer.source,
+            'pfm_id': pfm_id,
+            'params': params,
+            'drawing_set': _project.drawing_set.to_dict(),
+        }
+    else:
+        layer.width, layer.height = parse_svg_size_mm(svg)
+        layer.kind = 'pathfinding'
+        layer.region_id = region.id if region else None
+        layer.display_mode = _normalize_display_mode(data.get('display_mode') or layer.display_mode)
+        layer.source = {
+            'pfm_id': pfm_id,
+            'params': params,
+            'area': _project.area.to_dict(),
+            'drawing_set': _project.drawing_set.to_dict(),
+            'region_id': region.id if region else None,
+            'region_name': region.name if region else None,
+        }
     # With a region, occlude only its bounding box; otherwise the layer occludes
     # everything beneath its full footprint.
     layer.occlusion_mask = (
@@ -2794,10 +2850,28 @@ def api_image():
         w, h = im.size
     except Exception as exc:
         return jsonify(error=f'Not a readable image: {exc}'), 400
+    # The source image still backs regions (SAM), field masks and the legacy
+    # /api/process path; the raster layer is what the user sees and transforms.
     _project.set_image(data, f.filename)
+    # Fit (never crop) the image into the drawing area and centre it there;
+    # the user is free to move / resize / rotate it afterwards.
+    ix, iy, iw, ih = _project.area.inner_rect_mm()
+    fit = min(iw / w, ih / h)
+    w_mm, h_mm = w * fit, h * fit
+    name = Path(f.filename).stem or 'Image'
+    layer = _composition().add_raster_layer(
+        name, w_mm, h_mm,
+        source={'filename': f.filename, 'natural_width': w, 'natural_height': h},
+    )
+    layer.x = ix + (iw - w_mm) / 2
+    layer.y = iy + (ih - h_mm) / 2
+    _project.set_layer_image(layer, data, f.filename)
+    _project.save_composition_layers()
+    _sync_current_svg_from_composition()
     image_url = f'/api/source-image?v={int(time.time() * 1000)}'
     return jsonify(ok=True, width=w, height=h, name=f.filename,
-                   image_url=image_url)
+                   image_url=image_url, layer_id=layer.id,
+                   composition=_composition_payload())
 
 @app.route('/api/source-image')
 def api_source_image():

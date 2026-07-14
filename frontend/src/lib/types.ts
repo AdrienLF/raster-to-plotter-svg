@@ -158,7 +158,7 @@ export interface PathfindingStyleT {
 export interface CompositionLayerT {
   id: string;
   name: string;
-  kind: "generate" | "pathfinding" | "svg";
+  kind: "generate" | "pathfinding" | "svg" | "raster";
   visible: boolean;
   x: number;
   y: number;
@@ -170,6 +170,8 @@ export interface CompositionLayerT {
   crop?: CropRect | null;
   mask?: MaskShape | null;
   scale?: number;
+  rotation?: number;
+  image_path?: string;
   region_id?: string | null;
   display_mode: LayerDisplayMode;
   occlude_below: boolean;
