@@ -63,6 +63,9 @@ class PFM:
             on_progress("distributing", 0.85)
         layers = distribute(items, drawing_set, seed)
         drawing = Drawing(width=w, height=h, area=area, layers=layers)
+        bg = vals.get("background_color")
+        if vals.get("background_enabled") and isinstance(bg, str):
+            drawing.background = bg
         if area.clipping == "drawing":
             clip_drawing(drawing, (0, 0, w, h))
         if on_progress:

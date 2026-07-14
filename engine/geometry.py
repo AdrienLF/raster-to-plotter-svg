@@ -19,10 +19,16 @@ Point = tuple[float, float]
 
 @dataclass
 class Geometry:
-    """An open or closed polyline in working-pixel coordinates."""
+    """An open or closed polyline in working-pixel coordinates.
+
+    ``colour``/``fill`` are optional per-path presentation overrides (hex
+    strings); when unset the path inherits its pen layer's stroke and no fill.
+    """
 
     points: list[Point]
     closed: bool = False
+    colour: str | None = None
+    fill: str | None = None
 
     def bbox(self) -> tuple[float, float, float, float]:
         xs = [p[0] for p in self.points]
@@ -70,6 +76,7 @@ class Drawing:
     height: int                      # working raster height (px)
     area: "object"                   # engine.canvas.DrawingArea
     layers: list[Layer] = field(default_factory=list)
+    background: str | None = None    # page background colour (export-only, never plotted)
 
     def total(self) -> int:
         return sum(l.count() for l in self.layers)
@@ -237,5 +244,5 @@ def clip_drawing(drawing: Drawing, rect: tuple[float, float, float, float]) -> N
         for g in layer.paths:
             pts = g.points + [g.points[0]] if g.closed and len(g.points) >= 2 else g.points
             for sub in clip_polyline(pts, rect):
-                new_paths.append(Geometry(sub, closed=False))
+                new_paths.append(Geometry(sub, closed=False, colour=g.colour, fill=g.fill))
         layer.paths = new_paths

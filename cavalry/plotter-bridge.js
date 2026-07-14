@@ -358,6 +358,134 @@ bakeTessellation.onClick = function () {
   bakePattern();
 };
 
+// Dither shape authoring ------------------------------------------------------
+// Bakes the current composition as a Shape Dither stamp: with linked
+// parameters, 32 states are swept from their Light to Dark values (state 0 =
+// highlight artwork, state 31 = shadow artwork); with none, a single static
+// state is baked and Plotter Studio carries tone by scaling alone. Shares the
+// parameter list above with tessellation baking.
+
+function bakeShape() {
+  var originalValues = [];
+  try {
+    var name = shapeName.getText().trim();
+    if (name.length < 1 || name.length > 80) {
+      status.setText("Shape name must contain 1–80 characters");
+      return;
+    }
+
+    var stateCount = bindings.length > 0 ? 32 : 1;
+    for (var bindingIndex = 0; bindingIndex < bindings.length; bindingIndex++) {
+      var candidate = bindings[bindingIndex];
+      if (
+        typeof candidate.light !== "number" ||
+        !isFinite(candidate.light) ||
+        typeof candidate.dark !== "number" ||
+        !isFinite(candidate.dark)
+      ) {
+        status.setText("All Light and Dark values must be finite numbers");
+        return;
+      }
+    }
+
+    var resolution = compositionResolution();
+    if (
+      !resolution ||
+      resolution.length !== 2 ||
+      !isFinite(resolution[0]) ||
+      !isFinite(resolution[1]) ||
+      resolution[0] <= 0 ||
+      resolution[1] <= 0
+    ) {
+      status.setText("The active composition has no valid resolution");
+      return;
+    }
+    var manifest = {
+      format_version: 1,
+      name: name,
+      state_count: stateCount,
+      bounds: [0, 0, resolution[0], resolution[1]],
+    };
+
+    for (var originalIndex = 0; originalIndex < bindings.length; originalIndex++) {
+      originalValues.push({
+        layerId: bindings[originalIndex].layerId,
+        attrId: bindings[originalIndex].attrId,
+        value: api.get(
+          bindings[originalIndex].layerId,
+          bindings[originalIndex].attrId
+        ),
+      });
+    }
+
+    status.setText("Creating shape bake…");
+    client.post("/api/shapes/sessions", JSON.stringify(manifest), "application/json");
+    if (client.status() !== 200) {
+      throw new Error(responseError("Could not create shape session"));
+    }
+    var sessionId = JSON.parse(client.body()).session_id;
+    if (!sessionId) {
+      throw new Error("The server did not return a shape session");
+    }
+
+    for (var stateIndex = 0; stateIndex < stateCount; stateIndex++) {
+      var t = stateCount > 1 ? stateIndex / (stateCount - 1) : 0;
+      for (var linkedIndex = 0; linkedIndex < bindings.length; linkedIndex++) {
+        var binding = bindings[linkedIndex];
+        var stateValues = {};
+        stateValues[binding.attrId] =
+          binding.light + t * (binding.dark - binding.light);
+        api.set(binding.layerId, stateValues);
+      }
+      var stateStem = api.getTempFolder() + "/plotter-shape-" + stateIndex;
+      api.renderSVGFrame(stateStem, 100, true);
+      var stateSvg = api.readFromFile(stateStem + '.svg');
+      client.post(
+        "/api/shapes/sessions/" + sessionId + "/states/" + stateIndex,
+        stateSvg,
+        "image/svg+xml"
+      );
+      if (client.status() !== 200) {
+        throw new Error(responseError("Could not upload state " + stateIndex));
+      }
+      bakeProgress.setValue(stateIndex + 1);
+      status.setText("Baking shape state " + (stateIndex + 1) + " / " + stateCount);
+    }
+
+    client.post(
+      "/api/shapes/sessions/" + sessionId + "/finalize",
+      "",
+      "application/json"
+    );
+    if (client.status() !== 200) {
+      throw new Error(responseError("Could not install shape"));
+    }
+    status.setText("Installed shape " + name);
+  } catch (e) {
+    status.setText(e && e.message ? e.message : String(e));
+    console.error(e);
+  } finally {
+    restoreBindings(originalValues);
+    bakeProgress.setValue(0);
+  }
+}
+
+var shapeLayout = new ui.VLayout();
+shapeLayout.addSeparator("Dither shape");
+var shapeName = new ui.LineEdit();
+shapeName.setPlaceholder("Shape name");
+var shapeNameRow = new ui.HLayout();
+shapeNameRow.add(new ui.Label("Name"), shapeName);
+var bakeShapeButton = new ui.Button("Bake dither shape");
+bakeShapeButton.onClick = function () {
+  bakeShape();
+};
+shapeLayout.add(
+  shapeNameRow,
+  new ui.Label("Uses the parameter list above (none linked = one static state)."),
+  bakeShapeButton
+);
+
 rebuildBindings();
 tessellationLayout.add(
   nameRow,
@@ -373,6 +501,7 @@ ui.add(row);
 ui.add(createA3);
 ui.add(status);
 ui.add(tessellationLayout);
+ui.add(shapeLayout);
 ui.setMinimumWidth(540);
 ui.show();
 

@@ -14,6 +14,7 @@ from . import engrave     # noqa: F401  registers engraving (streamline family �
 from . import composite   # noqa: F401  registers layers + mosaic rectangles
 from . import quadtree    # noqa: F401  registers quadtree mosaic (composite family — keep adjacent)
 from . import dither      # noqa: F401  registers Floyd-Steinberg dither halftone
+from . import shape_dither  # noqa: F401  registers shape dither (dither family — keep adjacent)
 from . import packing     # noqa: F401  registers circle packing
 from . import growth      # noqa: F401  registers differential growth
 

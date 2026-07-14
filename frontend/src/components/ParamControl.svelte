@@ -48,6 +48,8 @@
           <option value={opt}>{opt}</option>
         {/each}
       </select>
+    {:else if param.type === "color"}
+      <input type="color" class="colour" id={param.name} bind:value />
     {:else if isNumeric}
       <div class="num">
         {#if param.min !== null && param.max !== null}

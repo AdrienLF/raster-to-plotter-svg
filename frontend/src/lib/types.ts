@@ -1,6 +1,6 @@
 export interface Param {
   name: string;
-  type: "float" | "int" | "bool" | "enum" | "angle";
+  type: "float" | "int" | "bool" | "enum" | "angle" | "color";
   default: any;
   label: string;
   group: string;

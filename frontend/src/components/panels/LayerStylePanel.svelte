@@ -46,6 +46,9 @@
     return { kind: "busy" as const, text: "Preparing AI model…", pct: 0 };
   });
   const samBusy = $derived(samSetup?.kind === "busy");
+  const selectedPfmFamily = $derived(
+    studio.pfms.find((p) => p.id === (style.pfm_id || studio.pfmId))?.family ?? "",
+  );
   const groups = $derived.by(() => {
     const m = new Map<string, Param[]>();
     for (const p of studio.layerStyleSchema) {
@@ -72,6 +75,7 @@
     packing: "Packing",
     growth: "Growth",
     tessellation: "Tessellation",
+    shape_dither: "Shape Dither",
   };
   // Group PFMs into optgroups by family label. Merge by label (not just
   // contiguous runs): the optgroups are keyed by label, so a family whose
@@ -183,6 +187,16 @@
     loadedPfm = pfm_id;
     localParams = defaults(schema);
     await patchStyle({ pfm_id, params: localParams });
+  }
+
+  let shapeFileInput = $state<HTMLInputElement | null>(null);
+  async function onShapeFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const shape = await api.uploadShapeSvg(file);
+    if (shape) await setPfm(shape.id);
   }
 
   async function setEnabled(enabled: boolean) {
@@ -378,6 +392,21 @@
             groups={pfmGroups}
             onPick={(id) => void setPfm(id)}
             onClose={() => (pickerOpen = false)}
+          />
+        {/if}
+
+        {#if selectedPfmFamily === "shape_dither"}
+          <button
+            class="shape-upload"
+            title="Add an SVG as a custom dither shape (or bake a multi-state shape from Cavalry)"
+            onclick={() => shapeFileInput?.click()}
+          >⬆ Upload shape SVG…</button>
+          <input
+            type="file"
+            accept=".svg"
+            hidden
+            bind:this={shapeFileInput}
+            onchange={onShapeFile}
           />
         {/if}
 
@@ -681,5 +710,20 @@
     object-fit: cover;
     border-radius: 3px;
     background: white;
+  }
+  .shape-upload {
+    width: 100%;
+    padding: 5px 6px;
+    margin: 2px 0;
+    background: none;
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .shape-upload:hover {
+    border-color: var(--accent);
+    color: var(--text);
   }
 </style>

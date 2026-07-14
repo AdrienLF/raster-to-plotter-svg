@@ -624,6 +624,20 @@ export const api = {
     pushLog(`Loaded SVG ${j.name}`);
   },
 
+  async uploadShapeSvg(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/shapes", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) {
+      reportError("Shape upload error", j.error || "Shape upload failed");
+      return null;
+    }
+    studio.pfms = j.pfms;
+    pushLog(`Installed dither shape ${j.shape.name}`);
+    return j.shape as { id: string; name: string; source: string };
+  },
+
   async saveArea() {
     if (!studio.area) return;
     await jpost("/api/area", studio.area);

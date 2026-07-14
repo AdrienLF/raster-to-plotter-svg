@@ -8,10 +8,13 @@ A single ``Param`` list per Path Finding Module drives three things at once:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
-PARAM_TYPES = ("float", "int", "bool", "enum", "angle")
+PARAM_TYPES = ("float", "int", "bool", "enum", "angle", "color")
+
+_HEX_COLOUR = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
 @dataclass
@@ -60,6 +63,13 @@ class Param:
             v = str(value)
             if self.choices and v not in self.choices:
                 return self.default
+            return v
+        elif self.type == "color":
+            v = str(value).strip().lower()
+            if not _HEX_COLOUR.match(v):
+                return self.default
+            if len(v) == 4:  # #rgb -> #rrggbb
+                v = "#" + "".join(c * 2 for c in v[1:])
             return v
         else:  # pragma: no cover - guarded in __post_init__
             return value

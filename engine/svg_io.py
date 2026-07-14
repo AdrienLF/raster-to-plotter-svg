@@ -54,9 +54,23 @@ def _render_layer(layer: Layer, scale_fn, scale: float) -> str:
     for g in layer.paths:
         pts = g.points + [g.points[0]] if g.closed and g.points else g.points
         if len(pts) >= 2:
-            body.append(f'<path d="{_path_d(pts, scale_fn)}"/>')
+            over = ""
+            if g.colour:
+                over += f' stroke="{g.colour}"'
+            if g.fill:
+                over += f' fill="{g.fill}"'
+            body.append(f'<path d="{_path_d(pts, scale_fn)}"{over}/>')
     body.append("</g>")
     return "\n".join(body)
+
+
+def _background_rect(drawing: Drawing, w_mm: float, h_mm: float) -> str:
+    """Full-page background fill. ``data-plot="skip"`` keeps it out of the
+    plot parser and the per-pen splitter — it exists only in the exported SVG."""
+    if not drawing.background:
+        return ""
+    return (f'<rect x="0" y="0" width="{_fmt(w_mm)}" height="{_fmt(h_mm)}" '
+            f'fill="{drawing.background}" stroke="none" data-plot="skip"/>\n')
 
 
 def to_svg(drawing: Drawing) -> str:
@@ -66,7 +80,8 @@ def to_svg(drawing: Drawing) -> str:
     layers = "\n".join(_render_layer(l, scale_fn, scale) for l in drawing.layers if l.count())
     return (
         f'<svg {_SVG_NS} width="{_fmt(w_mm)}mm" height="{_fmt(h_mm)}mm" '
-        f'viewBox="0 0 {_fmt(w_mm)} {_fmt(h_mm)}">\n{layers}\n</svg>'
+        f'viewBox="0 0 {_fmt(w_mm)} {_fmt(h_mm)}">\n'
+        f'{_background_rect(drawing, w_mm, h_mm)}{layers}\n</svg>'
     )
 
 
@@ -81,7 +96,8 @@ def to_svg_layers(drawing: Drawing) -> list[tuple[str, str]]:
         body = _render_layer(layer, scale_fn, scale)
         svg = (
             f'<svg {_SVG_NS} width="{_fmt(w_mm)}mm" height="{_fmt(h_mm)}mm" '
-            f'viewBox="0 0 {_fmt(w_mm)} {_fmt(h_mm)}">\n{body}\n</svg>'
+            f'viewBox="0 0 {_fmt(w_mm)} {_fmt(h_mm)}">\n'
+            f'{_background_rect(drawing, w_mm, h_mm)}{body}\n</svg>'
         )
         out.append((getattr(layer.pen, "name", "Pen"), svg))
     return out
@@ -248,6 +264,8 @@ def split_svg_by_pen(svg_bytes, pen_order):
     order_seen: list[str] = []
     for el in root.iter():
         if _local(el.tag) not in _DRAWABLES:
+            continue
+        if el.get("data-plot") == "skip":
             continue
         if _under_skip(el, parent):
             continue

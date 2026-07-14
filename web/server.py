@@ -17,6 +17,12 @@ from engine.pens import DrawingSet, PEN_LIBRARIES, library_pens
 from engine.params import schema_json, validate
 from engine.pfm import REGISTRY, get as get_pfm, list_pfms
 from engine.pfm.tessellation import replace_tessellation_pattern
+from engine.pfm.shape_dither import replace_shape_pfm
+from engine.shape_library import (
+    MAX_STATES as SHAPE_MAX_STATES,
+    ShapeLibrary,
+    ShapeValidationError,
+)
 from engine.tessellation_library import (
     MAX_SVG_BYTES,
     MAX_TOTAL_BYTES,
@@ -168,6 +174,16 @@ for _custom_tessellation in _tessellation_library.load_all():
     except Exception:
         LOG.exception('Could not register tessellation package %s',
                       _custom_tessellation.id)
+
+# Custom dither shapes follow the same staged-import lifecycle.
+_shape_library = ShapeLibrary(project_mod.WORKSPACE / 'shapes')
+_shape_session_root = project_mod.WORKSPACE / 'shape-imports'
+
+for _custom_shape in _shape_library.load_all():
+    try:
+        replace_shape_pfm(_custom_shape)
+    except Exception:
+        LOG.exception('Could not register shape package %s', _custom_shape.id)
 
 def _project_public(p):
     has_image = bool(p.image_path and p.image_path.exists())
@@ -802,6 +818,10 @@ def svg_to_polylines(svg_bytes, settings, on_progress=None, respect_stop=True):
             on_progress(idx, total_el)
         if respect_stop and _stop_event.is_set():
             raise RuntimeError('__stopped__')
+
+        # Export-only decorations (e.g. the page-background rect) never plot.
+        if (getattr(element, 'values', None) or {}).get('data-plot') == 'skip':
+            continue
 
         if clip_levels:
             try:
@@ -2986,11 +3006,11 @@ def api_layer_field_preview(layer_id):
     return app.response_class(png, mimetype='image/png')
 
 
-def _tessellation_session_dir(session_id):
+def _import_session_dir(root, session_id):
     """Return a live import session directory, removing expired sessions."""
     if not re.fullmatch(r'[0-9a-f]{32}', session_id or ''):
         return None
-    path = _tessellation_session_root / session_id
+    path = root / session_id
     if not path.is_dir():
         return None
     try:
@@ -3004,29 +3024,24 @@ def _tessellation_session_dir(session_id):
     return path
 
 
-@app.route('/api/tessellations/sessions', methods=['POST'])
-def api_tessellation_session_create():
-    manifest = request.get_json(silent=True)
-    if not isinstance(manifest, dict):
-        return jsonify(error='Manifest must be a JSON object'), 400
-    _tessellation_session_root.mkdir(parents=True, exist_ok=True)
+def _tessellation_session_dir(session_id):
+    return _import_session_dir(_tessellation_session_root, session_id)
+
+
+def _create_import_session(root, manifest):
+    root.mkdir(parents=True, exist_ok=True)
     session_id = uuid.uuid4().hex
-    session_dir = _tessellation_session_root / session_id
+    session_dir = root / session_id
     session_dir.mkdir()
     (session_dir / 'manifest.json').write_text(
         json.dumps(manifest, separators=(',', ':')), encoding='utf-8')
     (session_dir / 'created_at').write_text(str(time.time()), encoding='utf-8')
-    return jsonify(session_id=session_id)
+    return session_id
 
 
-@app.route('/api/tessellations/sessions/<session_id>/states/<int:index>',
-           methods=['POST'])
-def api_tessellation_session_state(session_id, index):
-    if index < 0 or index >= 32:
-        return jsonify(error='State index must be between 0 and 31'), 400
-    session_dir = _tessellation_session_dir(session_id)
-    if session_dir is None:
-        return jsonify(error='Unknown or expired tessellation session'), 404
+def _store_session_state(session_dir, index):
+    """Persist one posted SVG state into a session dir. Returns an error
+    response tuple, or None on success."""
     payload = request.get_data(cache=False)
     if len(payload) > MAX_SVG_BYTES:
         return jsonify(error=f'State exceeds {MAX_SVG_BYTES} bytes'), 413
@@ -3040,6 +3055,29 @@ def api_tessellation_session_state(session_id, index):
             handle.write(payload)
     except FileExistsError:
         return jsonify(error=f'State {index} has already been uploaded'), 409
+    return None
+
+
+@app.route('/api/tessellations/sessions', methods=['POST'])
+def api_tessellation_session_create():
+    manifest = request.get_json(silent=True)
+    if not isinstance(manifest, dict):
+        return jsonify(error='Manifest must be a JSON object'), 400
+    return jsonify(session_id=_create_import_session(_tessellation_session_root,
+                                                     manifest))
+
+
+@app.route('/api/tessellations/sessions/<session_id>/states/<int:index>',
+           methods=['POST'])
+def api_tessellation_session_state(session_id, index):
+    if index < 0 or index >= 32:
+        return jsonify(error='State index must be between 0 and 31'), 400
+    session_dir = _tessellation_session_dir(session_id)
+    if session_dir is None:
+        return jsonify(error='Unknown or expired tessellation session'), 404
+    error = _store_session_state(session_dir, index)
+    if error is not None:
+        return error
     return jsonify(ok=True, index=index)
 
 
@@ -3074,13 +3112,121 @@ def api_tessellations_list():
     return jsonify(patterns=_tessellation_library.list())
 
 
+# ── Custom dither shapes (direct upload + Cavalry bake) ─────────────────────────
+
+@app.route('/api/shapes', methods=['POST'])
+def api_shape_upload():
+    f = request.files.get('file')
+    if not f:
+        return jsonify(error='No file'), 400
+    if not f.filename.lower().endswith('.svg'):
+        return jsonify(error='SVG files only'), 400
+    raw = f.read()
+    if len(raw) > MAX_SVG_BYTES:
+        return jsonify(error=f'SVG exceeds {MAX_SVG_BYTES} bytes'), 413
+    name = (request.form.get('name') or Path(f.filename).stem or 'Shape').strip()
+    manifest = {'format_version': 1, 'name': name[:80],
+                'state_count': 1, 'bounds': None}
+    try:
+        shape = _shape_library.install(manifest, [raw.decode('utf-8', 'replace')],
+                                       source='upload')
+    except ShapeValidationError as exc:
+        return jsonify(error=str(exc) or 'Invalid shape SVG'), 400
+    replace_shape_pfm(shape)
+    return jsonify(
+        ok=True,
+        shape={'id': shape.id, 'name': shape.name, 'source': shape.source},
+        pfms=list_pfms(),
+    )
+
+
+@app.route('/api/shapes')
+def api_shapes_list():
+    return jsonify(shapes=_shape_library.list())
+
+
+def _shape_session_state_count(session_dir):
+    try:
+        manifest = json.loads((session_dir / 'manifest.json').read_text('utf-8'))
+        count = manifest.get('state_count')
+        if isinstance(count, bool) or not isinstance(count, int):
+            return None
+        if not (1 <= count <= SHAPE_MAX_STATES):
+            return None
+        return count
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return None
+
+
+@app.route('/api/shapes/sessions', methods=['POST'])
+def api_shape_session_create():
+    manifest = request.get_json(silent=True)
+    if not isinstance(manifest, dict):
+        return jsonify(error='Manifest must be a JSON object'), 400
+    count = manifest.get('state_count')
+    if isinstance(count, bool) or not isinstance(count, int) \
+            or not (1 <= count <= SHAPE_MAX_STATES):
+        return jsonify(
+            error=f'state_count must be an integer in 1..{SHAPE_MAX_STATES}'), 400
+    return jsonify(session_id=_create_import_session(_shape_session_root, manifest))
+
+
+@app.route('/api/shapes/sessions/<session_id>/states/<int:index>', methods=['POST'])
+def api_shape_session_state(session_id, index):
+    session_dir = _import_session_dir(_shape_session_root, session_id)
+    if session_dir is None:
+        return jsonify(error='Unknown or expired shape session'), 404
+    count = _shape_session_state_count(session_dir)
+    if count is None or index < 0 or index >= count:
+        return jsonify(error=f'State index must be between 0 and {count or "?"}'), 400
+    error = _store_session_state(session_dir, index)
+    if error is not None:
+        return error
+    return jsonify(ok=True, index=index)
+
+
+@app.route('/api/shapes/sessions/<session_id>/finalize', methods=['POST'])
+def api_shape_session_finalize(session_id):
+    session_dir = _import_session_dir(_shape_session_root, session_id)
+    if session_dir is None:
+        return jsonify(error='Unknown or expired shape session'), 404
+    count = _shape_session_state_count(session_dir)
+    if count is None:
+        shutil.rmtree(session_dir, ignore_errors=True)
+        return jsonify(error='Invalid shape manifest'), 400
+    state_paths = [session_dir / f'state-{index:02d}.svg' for index in range(count)]
+    missing = [index for index, path in enumerate(state_paths) if not path.is_file()]
+    if missing:
+        shutil.rmtree(session_dir, ignore_errors=True)
+        return jsonify(error=f'Missing shape states: {missing}'), 400
+    try:
+        manifest = json.loads((session_dir / 'manifest.json').read_text('utf-8'))
+        states = [path.read_text('utf-8') for path in state_paths]
+        shape = _shape_library.install(manifest, states, source='cavalry')
+    except (ShapeValidationError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        shutil.rmtree(session_dir, ignore_errors=True)
+        return jsonify(error=str(exc) or 'Invalid shape package'), 400
+    replace_shape_pfm(shape)
+    shutil.rmtree(session_dir, ignore_errors=True)
+    return jsonify(
+        ok=True,
+        shape={'id': shape.id, 'name': shape.name, 'source': shape.source},
+        pfms=list_pfms(),
+    )
+
+
 @app.route('/static/pfm-previews/<pattern_id>.png')
 def custom_tessellation_preview(pattern_id):
-    if not re.fullmatch(r'tessellation_custom_[a-z0-9_]+', pattern_id or ''):
-        return jsonify(error='Unknown tessellation preview'), 404
-    preview_path = _tessellation_library.root / pattern_id / 'preview.png'
+    if re.fullmatch(r'tessellation_custom_[a-z0-9_]+', pattern_id or ''):
+        preview_path = _tessellation_library.root / pattern_id / 'preview.png'
+    elif re.fullmatch(r'shape_dither_custom_[a-z0-9_]+', pattern_id or ''):
+        preview_path = _shape_library.root / pattern_id / 'preview.png'
+    else:
+        # Builtin PFM previews are plain static files; this route shadows the
+        # whole /static/pfm-previews/ prefix, so serve them explicitly.
+        return app.send_static_file(f'pfm-previews/{pattern_id}.png')
     if not preview_path.is_file():
-        return jsonify(error='Unknown tessellation preview'), 404
+        return jsonify(error='Unknown preview'), 404
     return send_file(preview_path, mimetype='image/png')
 
 @app.route('/api/pfm/list')
