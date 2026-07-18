@@ -123,7 +123,7 @@ class ParameterBinding:
     attribute_id: str
     light: float
     dark: float
-    curve: dict | None = None
+    curve: tuple[tuple[str, float], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -244,15 +244,20 @@ def test_render_applies_gamma_and_inversion_to_geometry():
     assert normal.lum == pytest.approx(1 - 64 / 255, abs=0.02)
 
 
-def test_rotation_and_phase_change_placed_geometry_without_changing_count():
+def test_rotation_and_phase_change_geometry_while_covering_page():
     work = Image.new("L", (80, 60), 128)
     base = render_tessellation(work, constant_pattern(), VALUES)
     moved = render_tessellation(
         work, constant_pattern(),
         {**VALUES, "rotation": 17, "phase_x": 0.25, "phase_y": -0.2},
     )
-    assert len(moved) == len(base)
+    assert base and moved
     assert moved[0].path.points != base[0].path.points
+    for items in (base, moved):
+        xs = [x for item in items for x, _ in item.path.points]
+        ys = [y for item in items for _, y in item.path.points]
+        assert min(xs) < 0 and max(xs) > work.width
+        assert min(ys) < 0 and max(ys) > work.height
 ```
 
 - [ ] **Step 2: Run the new tests and verify RED**
@@ -384,12 +389,13 @@ def test_duplicate_segments_are_removed_regardless_of_direction():
         Item(0.8, path=Geometry([(2, 0), (1, 0)])),
     ]
     out = deduplicate_items(items)
-    segments = {
-        tuple(sorted((path.points[0], path.points[-1])))
-        for item in out if (path := item.path)
-    }
-    assert tuple(sorted(((1.0, 0.0), (2.0, 0.0)))) not in segments
-    assert tuple(sorted(((0.0, 0.0), (1.0, 0.0)))) in segments
+    segments = [
+        tuple(sorted((p0, p1)))
+        for item in out if item.path
+        for p0, p1 in zip(item.path.points, item.path.points[1:])
+    ]
+    assert segments.count(tuple(sorted(((1.0, 0.0), (2.0, 0.0))))) == 1
+    assert segments.count(tuple(sorted(((0.0, 0.0), (1.0, 0.0))))) == 1
 
 
 def test_nearby_but_distinct_segments_survive():
@@ -428,9 +434,8 @@ def deduplicate_items(items: list[Item], tolerance: float = 1e-6) -> list[Item]:
             segments.setdefault(canonical, []).append((item.lum, p0, p1))
     survivors = []
     for occurrences in segments.values():
-        if len(occurrences) == 1:
-            lum, p0, p1 = occurrences[0]
-            survivors.append(Item(lum=lum, path=Geometry([p0, p1])))
+        lum, p0, p1 = occurrences[0]
+        survivors.append(Item(lum=lum, path=Geometry([p0, p1])))
     return chain_items(survivors)
 ```
 

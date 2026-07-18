@@ -17,5 +17,8 @@ wheels/
 artifacts/profiling/
 frontend/e2e/perf/results.jsonl
 
+# Local agent development ledger
+.superpowers/
+
 # macOS
 .DS_Store
