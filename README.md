@@ -145,6 +145,10 @@ uv run --no-sync python tools/build_docs_reference.py
 
 # Check the manual for broken links, stale screenshots, and drift
 uv run --no-sync python tools/check_docs.py
+
+# Retake the manual's screenshots from the live app (writes web/static/docs/img)
+cd frontend && E2E_BACKEND_CMD="uv run --locked --no-sync python -m web.server" \
+  DOCS_CAPTURE=1 npx playwright test docs-capture
 ```
 
 The deterministic CPU/MPS/CUDA/browser profiling suite is documented in
@@ -176,3 +180,7 @@ legacy/        Original single-image desktop GUI (see legacy/README.md)
 pyproject.toml uv manifest (engine + web deps; `cuda`/`mps` + `sam2` extras)
 uv.lock        locked dependency tree
 ```
+
+## License
+
+[MIT](LICENSE)
