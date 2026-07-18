@@ -3,8 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+import numpy as np
+from PIL import Image
+
+from .geometry import Geometry, Item
+from .image_ops import luminance
+
 Point = tuple[float, float]
 STATE_COUNT = 32
+ALPHA_COVER_MIN = 0.05
+MAX_TILES = 20_000
 
 
 @dataclass(frozen=True)
@@ -68,3 +76,107 @@ def state_at_tone(pattern: TessellationPattern, tone: float) -> TileState:
         ), pa.closed)
         for pa, pb in zip(a.paths, b.paths)
     ))
+
+
+def _cell_mean(gray, alpha, origin, a, b):
+    corners = np.asarray([origin, origin + a, origin + a + b, origin + b])
+    x0 = max(0, int(math.floor(corners[:, 0].min())))
+    y0 = max(0, int(math.floor(corners[:, 1].min())))
+    x1 = min(gray.shape[1], int(math.ceil(corners[:, 0].max())))
+    y1 = min(gray.shape[0], int(math.ceil(corners[:, 1].max())))
+    if x1 <= x0 or y1 <= y0:
+        return 1.0, 0.0
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    sample = np.stack(
+        (xx + 0.5 - origin[0], yy + 0.5 - origin[1]), axis=-1,
+    )
+    inv = np.linalg.inv(np.column_stack((a, b)))
+    uv = sample @ inv.T
+    mask = (
+        (uv[..., 0] >= 0)
+        & (uv[..., 0] < 1)
+        & (uv[..., 1] >= 0)
+        & (uv[..., 1] < 1)
+    )
+    if not mask.any():
+        return 1.0, 0.0
+    return (
+        float(gray[y0:y1, x0:x1][mask].mean()),
+        float(alpha[y0:y1, x0:x1][mask].mean()),
+    )
+
+
+def _transformed_lattice(pattern, width, columns, rotation):
+    base_a = np.asarray(pattern.a, dtype=float)
+    base_b = np.asarray(pattern.b, dtype=float)
+    scale = width / (max(1, int(columns)) * np.linalg.norm(base_a))
+    theta = math.radians(float(rotation))
+    rot = np.asarray((
+        (math.cos(theta), -math.sin(theta)),
+        (math.sin(theta), math.cos(theta)),
+    ))
+    return rot @ (base_a * scale), rot @ (base_b * scale), rot * scale
+
+
+def _edge_sample(gray, alpha, origin, a, b):
+    center = origin + 0.5 * (a + b)
+    x = int(np.clip(math.floor(center[0]), 0, gray.shape[1] - 1))
+    y = int(np.clip(math.floor(center[1]), 0, gray.shape[0] - 1))
+    return float(gray[y, x]), float(alpha[y, x])
+
+
+def render_tessellation(
+    work: Image.Image,
+    pattern: TessellationPattern,
+    values: dict,
+) -> list[Item]:
+    gray, alpha = luminance(work)
+    height, width = gray.shape
+    a, b, artwork_transform = _transformed_lattice(
+        pattern, width, values["columns"], values["rotation"],
+    )
+    basis = np.column_stack((a, b))
+    inv = np.linalg.inv(basis)
+    phase = float(values["phase_x"]) * a + float(values["phase_y"]) * b
+    page = np.asarray(
+        ((0, 0), (width, 0), (width, height), (0, height)),
+    ) - phase
+    ij = page @ inv.T
+    imin, jmin = np.floor(ij.min(axis=0)).astype(int) - 2
+    imax, jmax = np.ceil(ij.max(axis=0)).astype(int) + 2
+    if (imax - imin + 1) * (jmax - jmin + 1) > MAX_TILES:
+        raise ValueError("Tessellation exceeds the 20,000 tile limit")
+    items = []
+    for i in range(imin, imax + 1):
+        for j in range(jmin, jmax + 1):
+            origin = phase + i * a + j * b
+            mean, cover = _cell_mean(gray, alpha, origin, a, b)
+            if cover == 0.0:
+                mean, cover = _edge_sample(gray, alpha, origin, a, b)
+            if cover < ALPHA_COVER_MIN:
+                continue
+            darkness = 1.0 - mean
+            mapped = 1.0 - darkness if values["invert_tone"] else darkness
+            mapped = max(0.0, min(1.0, mapped)) ** float(
+                values["tone_response"],
+            )
+            tile = state_at_tone(pattern, mapped)
+            for path in tile.paths:
+                points = [
+                    tuple(origin + artwork_transform @ np.asarray(p))
+                    for p in path.points
+                ]
+                if len(points) >= 2:
+                    items.append(Item(
+                        lum=darkness * cover,
+                        path=Geometry(points, closed=path.closed),
+                    ))
+    if values["remove_duplicates"]:
+        return deduplicate_items(items)
+    return items
+
+
+def deduplicate_items(
+    items: list[Item], tolerance: float = 1e-6,
+) -> list[Item]:
+    return items

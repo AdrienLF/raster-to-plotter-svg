@@ -1,12 +1,15 @@
 from typing import get_type_hints
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from engine.tessellation import (
     ParameterBinding,
     TessellationPattern,
     TilePath,
     TileState,
+    render_tessellation,
     state_at_tone,
 )
 
@@ -22,6 +25,26 @@ def pattern(states):
         a=(1.0, 0.0), b=(0.0, 1.0), bounds=(0.0, 0.0, 1.0, 1.0),
         states=tuple(states), bindings=(),
     )
+
+
+def constant_pattern(path=TilePath(((0.1, 0.5), (0.9, 0.5)))):
+    s = TileState((path,))
+    return TessellationPattern(
+        id="constant", name="Constant", source="builtin",
+        a=(1, 0), b=(0, 1), bounds=(0, 0, 1, 1),
+        states=tuple(s for _ in range(32)), bindings=(),
+    )
+
+
+VALUES = dict(
+    columns=2,
+    rotation=0,
+    phase_x=0,
+    phase_y=0,
+    tone_response=1,
+    invert_tone=False,
+    remove_duplicates=False,
+)
 
 
 def test_pattern_requires_32_states_and_nondegenerate_lattice():
@@ -104,3 +127,50 @@ def test_state_at_tone_chooses_nearest_state_on_both_sides_of_midpoint():
 
     assert state_at_tone(p, 15.49 / 31) == states[15]
     assert state_at_tone(p, 15.51 / 31) == changed
+
+
+def test_render_covers_page_and_scales_by_columns():
+    work = Image.new("L", (100, 60), 128)
+    items = render_tessellation(work, constant_pattern(), VALUES)
+    assert items
+    assert all(item.path is not None for item in items)
+    xs = [x for item in items for x, _ in item.path.points]
+    assert min(xs) < 0
+    assert max(xs) > 100
+
+
+def test_render_skips_transparent_cells():
+    work = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+    assert render_tessellation(work, constant_pattern(), VALUES) == []
+
+
+def test_render_applies_gamma_and_inversion_to_geometry():
+    states = tuple(state(float(i) / 31) for i in range(32))
+    p = TessellationPattern(
+        "tone", "Tone", "builtin", (1, 0), (0, 1),
+        (0, 0, 1, 1), states, (),
+    )
+    work = Image.fromarray(np.full((20, 20), 64, np.uint8), "L")
+    normal = render_tessellation(work, p, {**VALUES, "columns": 1})[0]
+    inverted = render_tessellation(
+        work, p, {**VALUES, "columns": 1, "invert_tone": True},
+    )[0]
+    assert normal.path.points != inverted.path.points
+    assert normal.lum == pytest.approx(1 - 64 / 255, abs=0.02)
+
+
+def test_rotation_and_phase_change_geometry_while_covering_page():
+    work = Image.new("L", (80, 60), 128)
+    base = render_tessellation(work, constant_pattern(), VALUES)
+    moved = render_tessellation(
+        work,
+        constant_pattern(),
+        {**VALUES, "rotation": 17, "phase_x": 0.25, "phase_y": -0.2},
+    )
+    assert base and moved
+    assert moved[0].path.points != base[0].path.points
+    for items in (base, moved):
+        xs = [x for item in items for x, _ in item.path.points]
+        ys = [y for item in items for _, y in item.path.points]
+        assert min(xs) < 0 and max(xs) > work.width
+        assert min(ys) < 0 and max(ys) > work.height
