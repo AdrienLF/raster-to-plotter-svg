@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let the Cavalry bridge bake one or more selected numeric parameters into a reusable 32-state tessellation pattern installed in Plotter Studio.
+**Goal:** Let the Cavalry bridge bake one or more selected numeric parameters into a reusable 32-state tessellation pattern installed in PlotterForge.
 
 **Architecture:** A filesystem-backed `TessellationLibrary` validates and atomically stores normalized pattern packages, then registers them through the core plan's `register_tessellation_pattern`. Flask endpoints stage a manifest and 32 raw SVG states transactionally; the Cavalry script uses documented selected-attribute, value, render, file, and WebClient APIs to drive the bake.
 
@@ -497,7 +497,7 @@ set `status` to `"error"`, set `error` to the returned message, preserve
 error response. Add to `FEATURES.md`:
 
 ```markdown
-- **Cavalry tessellation authoring** — Select up to 16 numeric attributes, give each light/dark boundaries, choose a lattice preset or custom repeat vectors, and bake a reusable 32-state vector pattern into Studio. All parameters share one editable Studio tone-response curve.
+- **Cavalry tessellation authoring** — Select up to 16 numeric attributes, give each light/dark boundaries, choose a lattice preset or custom repeat vectors, and bake a reusable 32-state vector pattern into PlotterForge. All parameters share one editable PlotterForge tone-response curve.
 ```
 
 Add a frontend contract assertion that `LayerStylePanel.svelte` retains
@@ -522,7 +522,7 @@ Copy `cavalry/plotter-bridge.js` into Cavalry's Scripts folder. Verify:
 
 1. one selected numeric attribute is added with its current value;
 2. two bindings sweep together and both original values return after success;
-3. Rectangular and Custom vector bakes appear in Studio without restart;
+3. Rectangular and Custom vector bakes appear in PlotterForge without restart;
 4. a forced server stop during state upload restores both values and installs nothing;
 5. rebaking the same name replaces the library entry but does not redraw an existing layer until Apply / Regenerate.
 

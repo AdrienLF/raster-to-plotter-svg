@@ -89,8 +89,8 @@ class DocumentationContractTest(unittest.TestCase):
         for token in (
             "setup-windows.bat",
             "setup-macos.command",
-            "start-studio.bat",
-            "start-studio.command",
+            "start-windows.bat",
+            "start-macos.command",
             "Python 3.13",
             "SAM2",
             "Conda is not used",

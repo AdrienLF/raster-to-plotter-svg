@@ -4,7 +4,7 @@ Date: 2026-06-25
 
 ## Goal
 
-Make Plotter Studio layer-based. Path Finding, Generate, SVG import, export, and plotting should all work through one shared composition document. The physical plotting page is always A3 portrait, while each layer keeps its own artwork bounds and can be moved freely on that A3 page.
+Make PlotterForge layer-based. Path Finding, Generate, SVG import, export, and plotting should all work through one shared composition document. The physical plotting page is always A3 portrait, while each layer keeps its own artwork bounds and can be moved freely on that A3 page.
 
 ## Current Context
 

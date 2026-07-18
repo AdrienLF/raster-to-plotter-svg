@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish artist-facing Cavalry tessellation instructions in Plotter Studio's local manual and a durable repository guide with the developer/API reference.
+**Goal:** Publish artist-facing Cavalry tessellation instructions in PlotterForge's local manual and a durable repository guide with the developer/API reference.
 
 **Architecture:** Keep the in-app manual focused on the creative workflow in a new static HTML chapter that reuses `docs.css`. Put protocol, storage, limits, and maintenance details in one Markdown guide, then link both from the README and manual home page. Real Cavalry screenshots are optional enhancements and must never block complete written instructions.
 
-**Tech Stack:** Markdown, static HTML/CSS, Python contract tests, Plotter Studio's local Flask static server, in-app browser verification, optional macOS Cavalry screenshot capture.
+**Tech Stack:** Markdown, static HTML/CSS, Python contract tests, PlotterForge's local Flask static server, in-app browser verification, optional macOS Cavalry screenshot capture.
 
 ## Global Constraints
 
@@ -46,7 +46,7 @@ def test_cavalry_tessellation_guides_are_linked_and_complete(self):
         "## Artist workflow", "## Lattice presets",
         "## Rebaking and recovery", "## Package format",
         "## HTTP API", "## Limits",
-        "~/.plotter_studio/tessellations/",
+        "~/.plotterforge/tessellations/",
         "POST /api/tessellations/sessions", "GET /api/tessellations",
     ):
         self.assertIn(text, guide)
@@ -80,17 +80,17 @@ Create `docs/cavalry-tessellations.md` with these exact headings:
 
 Document installation of `cavalry/plotter-bridge.js`; preparing one repeat unit;
 numeric Light/Dark bindings; all four lattice presets; the shared 32-state bake;
-Studio controls; manifest version `1`; fields `layer_id`, `attribute_id`, `light`,
+PlotterForge controls; manifest version `1`; fields `layer_id`, `attribute_id`, `light`,
 `dark`, and `curve`; all four HTTP endpoints; one-hour session expiry; 8 MiB per
 SVG; 128 MiB total; 16 bindings; 2,000 paths; 200,000 flattened points;
 coordinate magnitude 1,000,000; names of 1–80 visible characters; storage at
-`~/.plotter_studio/tessellations/<pattern-id>/`; atomic replacement; startup
+`~/.plotterforge/tessellations/<pattern-id>/`; atomic replacement; startup
 registration; restored Cavalry values; and cached-SVG survival when a package is
 missing.
 
 - [ ] **Step 4: Add concise README discovery**
 
-Add a `## Cavalry tessellation authoring` section near the Plotter Studio
+Add a `## Cavalry tessellation authoring` section near the PlotterForge
 overview. Describe the bake in two short paragraphs and include:
 
 ```markdown
@@ -156,7 +156,7 @@ the established `.wrap`, `.crumbs`, `.hero`, `.kicker`, `.lede`, `.cards`,
 - a plain-language explanation of one repeat unit and 32 tone states;
 - a numbered workflow from opening the bridge through Apply / Regenerate;
 - a four-row lattice preset table;
-- a Studio controls table for Columns, Rotation, Phase X/Y, Tone Response,
+- a PlotterForge controls table for Columns, Rotation, Phase X/Y, Tone Response,
   Invert Tone, and Remove Duplicate Lines;
 - restored-value and safe-rebaking guidance;
 - troubleshooting for selection, non-numeric attributes, invalid vectors,
@@ -195,7 +195,7 @@ git commit -m "docs: add Cavalry tessellations to the artist manual"
 - Optionally modify: `web/static/docs/tessellations.html`
 
 **Interfaces:**
-- Consumes: `/Applications/Cavalry.app`, `cavalry/plotter-bridge.js`, the running Studio at port 7438, and the manual chapter from Task 2.
+- Consumes: `/Applications/Cavalry.app`, `cavalry/plotter-bridge.js`, the running PlotterForge at port 7438, and the manual chapter from Task 2.
 - Produces: verified manual navigation and, when capture is possible, real screenshots containing no unrelated project data.
 
 - [ ] **Step 1: Check screenshot prerequisites**
@@ -210,7 +210,7 @@ Launch Cavalry with user approval. Open the Plotter Bridge and stage a disposabl
 composition containing no personal artwork. Capture:
 
 1. the bridge's Tessellation controls with at least one numeric binding;
-2. Plotter Studio showing the installed custom pattern in the Tessellation family.
+2. PlotterForge showing the installed custom pattern in the Tessellation family.
 
 Crop to the relevant app window and save PNGs under `web/static/docs/img/`. If GUI
 automation, accessibility, or screen-capture permission blocks this, stop the

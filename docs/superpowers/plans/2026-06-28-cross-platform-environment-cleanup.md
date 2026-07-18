@@ -29,8 +29,8 @@ This plan covers only environment cleanup. It does not duplicate E2E selector/ra
 - `tests/test_regions.py` — replace runtime-install tests with setup-incomplete and explicit-download behavior.
 - `setup-windows.bat` — exact Windows CUDA + SAM2 setup and verification.
 - `setup-macos.command` — exact macOS MPS + SAM2 setup and verification.
-- `start-studio.bat` — mutation-free Windows launch.
-- `start-studio.command` — mutation-free macOS launch.
+- `start-windows.bat` — mutation-free Windows launch.
+- `start-macos.command` — mutation-free macOS launch.
 - `web/run.sh` — mutation-free command-line launch wrapper.
 - `frontend/e2e/global-setup.ts` — isolated uv backend command.
 - `frontend/e2e/README.md` — deterministic test environment documentation.
@@ -120,7 +120,7 @@ Update `pyproject.toml` so the relevant sections are exactly:
 
 ```toml
 [project]
-name = "raster-to-plotter-svg"
+name = "plotterforge"
 version = "0.1.0"
 description = "Convert a raster image to a plotter-ready SVG of stippled dots"
 requires-python = ">=3.13,<3.14"
@@ -366,7 +366,7 @@ def accelerator_status(torch, expected: str) -> tuple[dict[str, str], list[str]]
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Validate the Plotter Studio environment")
+    parser = argparse.ArgumentParser(description="Validate the PlotterForge environment")
     parser.add_argument("--backend", required=True, choices=("cuda", "mps"))
     parser.add_argument("--checkpoint")
     parser.add_argument("--download-checkpoint", action="store_true")
@@ -495,7 +495,7 @@ Implement `run_predictor_smoke(predictor, np, torch)` using a 32×32 black RGB i
 
 In `main()`, when `--smoke` is set:
 
-1. Resolve the checkpoint from `--checkpoint`, `SAM2_CHECKPOINT`, or `~/.plotter_studio/models/sam2.1_hiera_tiny.pt`.
+1. Resolve the checkpoint from `--checkpoint`, `SAM2_CHECKPOINT`, or `~/.plotterforge/models/sam2.1_hiera_tiny.pt`.
 2. Call `prepare_checkpoint(..., allow_download=args.download_checkpoint)`.
 3. Import `build_sam2` and `SAM2ImagePredictor`.
 4. Build on the requested backend and run `run_predictor_smoke`.
@@ -574,7 +574,7 @@ In `LocalSam2Adapter`:
 
 ```python
 raise RuntimeError(
-    "Plotter Studio setup is incomplete: missing "
+    "PlotterForge setup is incomplete: missing "
     + ", ".join(missing_modules)
     + ". Run setup-windows.bat on Windows or ./setup-macos.command on macOS."
 )
@@ -721,8 +721,8 @@ git commit -m "build: add full platform setup scripts"
 ### Task 6: Make every launcher mutation-free and Conda-independent
 
 **Files:**
-- Modify: `start-studio.bat`
-- Modify: `start-studio.command`
+- Modify: `start-windows.bat`
+- Modify: `start-macos.command`
 - Modify: `web/run.sh`
 - Modify: `tests/test_gpu_launch.py`
 - Modify: `tests/test_environment_contracts.py`
@@ -741,7 +741,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class LaunchContractTest(unittest.TestCase):
     def test_launchers_never_install_build_download_or_kill(self):
-        for relative in ("start-studio.bat", "start-studio.command", "web/run.sh"):
+        for relative in ("start-windows.bat", "start-macos.command", "web/run.sh"):
             source = (ROOT / relative).read_text(encoding="utf-8").lower()
             with self.subTest(relative=relative):
                 for forbidden in (
@@ -751,8 +751,8 @@ class LaunchContractTest(unittest.TestCase):
                     self.assertNotIn(forbidden, source)
 
     def test_platform_launchers_clear_conda_and_do_not_sync(self):
-        windows = (ROOT / "start-studio.bat").read_text(encoding="utf-8")
-        macos = (ROOT / "start-studio.command").read_text(encoding="utf-8")
+        windows = (ROOT / "start-windows.bat").read_text(encoding="utf-8")
+        macos = (ROOT / "start-macos.command").read_text(encoding="utf-8")
         self.assertIn('set "CONDA_PREFIX="', windows)
         self.assertIn("unset CONDA_PREFIX", macos)
         self.assertIn("uv run --locked --no-sync", windows)
@@ -761,11 +761,11 @@ class LaunchContractTest(unittest.TestCase):
     def test_launchers_run_quick_environment_check(self):
         self.assertIn(
             "-m web.env_check --backend cuda",
-            (ROOT / "start-studio.bat").read_text(encoding="utf-8"),
+            (ROOT / "start-windows.bat").read_text(encoding="utf-8"),
         )
         self.assertIn(
             "-m web.env_check --backend mps",
-            (ROOT / "start-studio.command").read_text(encoding="utf-8"),
+            (ROOT / "start-macos.command").read_text(encoding="utf-8"),
         )
 ```
 
@@ -781,7 +781,7 @@ Expected: failures because launchers currently sync, build, and kill port owners
 
 - [ ] **Step 3: Rewrite the Windows launcher**
 
-`start-studio.bat` must clear Conda variables, require `.venv\Scripts\python.exe`, check port 7438 without terminating its owner, run the quick CUDA diagnostic, and launch:
+`start-windows.bat` must clear Conda variables, require `.venv\Scripts\python.exe`, check port 7438 without terminating its owner, run the quick CUDA diagnostic, and launch:
 
 ```bat
 uv run --locked --no-sync python -m web.env_check --backend cuda || exit /b 1
@@ -792,7 +792,7 @@ If `.venv` is absent, print `Run setup-windows.bat first.` If the port is occupi
 
 - [ ] **Step 4: Rewrite the macOS and shell launchers**
 
-`start-studio.command` mirrors Windows with `--backend mps`, `lsof` for the non-destructive port check, and `exec uv run --locked --no-sync python -m web.server`.
+`start-macos.command` mirrors Windows with `--backend mps`, `lsof` for the non-destructive port check, and `exec uv run --locked --no-sync python -m web.server`.
 
 `web/run.sh` is a generic prepared-environment wrapper. It must not choose an accelerator profile or sync; it runs `exec uv run --locked --no-sync python -m web.server` after checking `.venv` exists.
 
@@ -809,7 +809,7 @@ Expected: all launcher and environment contracts pass.
 - [ ] **Step 6: Commit mutation-free launchers**
 
 ```powershell
-git add start-studio.bat start-studio.command web/run.sh tests/test_gpu_launch.py tests/test_environment_contracts.py
+git add start-windows.bat start-macos.command web/run.sh tests/test_gpu_launch.py tests/test_environment_contracts.py
 git commit -m "fix: keep launchers out of dependency setup"
 ```
 
@@ -887,7 +887,7 @@ git commit -m "test: isolate Playwright from the app environment"
 
 - [ ] **Step 1: Add failing documentation contracts**
 
-Add tests asserting that README contains `setup-windows.bat`, `setup-macos.command`, `start-studio.bat`, `start-studio.command`, `Python 3.13`, `SAM2`, and `Conda is not used`; and does not contain `uv sync --extra gpu`, `uv run --extra gpu`, or `Python 3.14+`.
+Add tests asserting that README contains `setup-windows.bat`, `setup-macos.command`, `start-windows.bat`, `start-macos.command`, `Python 3.13`, `SAM2`, and `Conda is not used`; and does not contain `uv sync --extra gpu`, `uv run --extra gpu`, or `Python 3.14+`.
 
 Use explicit `assertIn`/`assertNotIn` calls rather than regexes.
 
@@ -925,9 +925,9 @@ frontend dependencies, and verifies a real segmentation inference before succeed
 
 ## Launch
 
-Windows: `start-studio.bat`
+Windows: `start-windows.bat`
 
-macOS: `./start-studio.command`
+macOS: `./start-macos.command`
 
 Launch is offline and never installs, syncs, builds, downloads, or kills processes.
 Rerun the platform setup script after dependency or frontend changes.
@@ -994,7 +994,7 @@ Run the quick diagnostic and start launcher with network disabled or unavailable
 
 ```powershell
 uv run --locked --no-sync python -m web.env_check --backend cuda
-cmd /c start-studio.bat
+cmd /c start-windows.bat
 ```
 
 Repeat the lock hash and package freeze. Expected: identical outputs; no dependency, asset, model, or lockfile change.
@@ -1055,7 +1055,7 @@ Do not claim full macOS completion on Windows. Record the exact target-Mac comma
 ```sh
 ./setup-macos.command
 uv run --locked --no-sync python -m web.env_check --backend mps --smoke
-./start-studio.command
+./start-macos.command
 ```
 
 Expected on the target Mac: setup and MPS/SAM2 smoke pass, then the server starts without syncing or building.

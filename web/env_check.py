@@ -111,7 +111,7 @@ def run_predictor_smoke(predictor, np, torch):
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Validate the Plotter Studio environment")
+    parser = argparse.ArgumentParser(description="Validate the PlotterForge environment")
     parser.add_argument("--backend", required=True, choices=("cuda", "mps"))
     parser.add_argument("--checkpoint")
     parser.add_argument("--download-checkpoint", action="store_true")
@@ -164,7 +164,7 @@ def main(argv=None) -> int:
             checkpoint = Path(
                 args.checkpoint
                 or os.environ.get("SAM2_CHECKPOINT")
-                or Path.home() / ".plotter_studio" / "models" / f"{DEFAULT_MODEL}.pt"
+                or Path.home() / ".plotterforge" / "models" / f"{DEFAULT_MODEL}.pt"
             )
             checkpoint = prepare_checkpoint(
                 checkpoint,
@@ -185,7 +185,7 @@ def main(argv=None) -> int:
             checkpoint = Path(
                 args.checkpoint
                 or os.environ.get("SAM2_CHECKPOINT")
-                or Path.home() / ".plotter_studio" / "models" / f"{DEFAULT_MODEL}.pt"
+                or Path.home() / ".plotterforge" / "models" / f"{DEFAULT_MODEL}.pt"
             )
             prepare_checkpoint(checkpoint, DEFAULT_CHECKPOINT_URL, allow_download=True)
             details["sam2_checkpoint"] = "ready"

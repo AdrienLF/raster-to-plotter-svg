@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the Plotter Studio manual for broken or stale documentation."""
+"""Check the PlotterForge manual for broken or stale documentation."""
 
 from __future__ import annotations
 

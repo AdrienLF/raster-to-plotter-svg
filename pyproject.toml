@@ -1,7 +1,7 @@
 [project]
-name = "raster-to-plotter-svg"
-version = "0.1.0"
-description = "Convert a raster image to a plotter-ready SVG of stippled dots"
+name = "plotterforge"
+version = "1.0.0"
+description = "Turn raster images and procedural drawings into layered, plotter-ready SVG — then preview and plot them on a multi-pen plotter"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "customtkinter>=5.2.2",

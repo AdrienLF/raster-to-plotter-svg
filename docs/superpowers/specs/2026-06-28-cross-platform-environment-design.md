@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Make Plotter Studio reproducible on Windows with NVIDIA CUDA and on macOS with
+Make PlotterForge reproducible on Windows with NVIDIA CUDA and on macOS with
 Metal/MPS. `uv` is the only Python environment manager. SAM2 is an essential,
 verified part of a full installation, while application launch remains fast and
 never mutates dependencies.
@@ -106,7 +106,7 @@ claimed complete.
 
 ## Launch behavior
 
-`start-studio.bat` and `start-studio.command`:
+`start-windows.bat` and `start-macos.command`:
 
 - clear inherited Conda variables for child processes;
 - verify the prepared `.venv` and lockfile state without syncing;

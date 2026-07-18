@@ -154,7 +154,7 @@ _current_svg = None   # bytes (the composed SVG; may be stale — see _compositi
 _composition_dirty = True  # recompose _current_svg lazily, on demand
 _placement   = {'x': 0.0, 'y': 0.0}  # mm offset from page top-left
 
-# ── Studio state (image → PFM → drawing) ───────────────────────────────────────
+# ── PlotterForge state (image → PFM → drawing) ───────────────────────────────────────
 _project        = get_or_create('default')
 _drawing        = None    # last engine.Drawing produced
 _process_thread = None
@@ -460,7 +460,7 @@ class LocalSam2Adapter:
     @staticmethod
     def _setup_incomplete_error(missing):
         return (
-            'Plotter Studio setup is incomplete: missing '
+            'PlotterForge setup is incomplete: missing '
             + ', '.join(missing)
             + '. Run setup-windows.bat on Windows or ./setup-macos.command on macOS.'
         )
@@ -2825,7 +2825,7 @@ if os.environ.get('PLOTTER_FAKE_SERIAL'):
             return jsonify(ok=True)
         return jsonify(writes=list(_FAKE_SERIAL_WRITES))
 
-# ── Studio: image → PFM → drawing ──────────────────────────────────────────────
+# ── PlotterForge: image → PFM → drawing ──────────────────────────────────────────────
 
 def _area_from(data):
     """Update the project's drawing area from a request dict, persist, return it."""

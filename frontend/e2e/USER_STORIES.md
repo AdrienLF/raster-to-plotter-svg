@@ -1,4 +1,4 @@
-# Plotter Studio — E2E User Stories
+# PlotterForge — E2E User Stories
 
 A library of user stories that drive the Playwright e2e tests. They serve three goals:
 

@@ -7,7 +7,7 @@ turning the main README or the in-app manual into an implementation dump.
 
 ## Audiences
 
-- **Artists using Cavalry and Plotter Studio** need a visual-language-first
+- **Artists using Cavalry and PlotterForge** need a visual-language-first
   explanation of repeat units, light/dark parameter boundaries, lattice presets,
   baking, rebaking, and what happens when something fails.
 - **Developers and maintainers** need the package contract, API sequence, limits,
@@ -27,7 +27,7 @@ The chapter will cover:
 3. adding one or more selected numeric attributes;
 4. setting Light and Dark endpoints;
 5. choosing Rectangular, Brick, Hex/Isometric, or Custom vectors;
-6. baking 32 states and finding the installed style in Plotter Studio;
+6. baking 32 states and finding the installed style in PlotterForge;
 7. tuning Columns, Rotation, Phase, Tone Response, inversion, and duplicate-line
    cleanup without rebaking;
 8. safe rebaking and restoration of original Cavalry values;
@@ -51,7 +51,7 @@ It will repeat the concise artist workflow, then add:
 - manifest and binding fields;
 - session creation, indexed SVG upload, finalization, and listing endpoints;
 - package validation and size/path/point limits;
-- storage under `~/.plotter_studio/tessellations/`;
+- storage under `~/.plotterforge/tessellations/`;
 - atomic replacement and startup registration;
 - cached-layer behavior when a package is missing;
 - focused verification commands and the manual smoke checklist.

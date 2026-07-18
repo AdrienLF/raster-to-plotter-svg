@@ -2,7 +2,7 @@
 
 A project bundles the source image, the current Drawing Area, Drawing Set, the
 selected PFM + params, and an ordered list of saved Versions. Everything lives
-under ``~/.plotter_studio/projects/<id>/``.
+under ``~/.plotterforge/projects/<id>/``.
 """
 
 from __future__ import annotations
@@ -23,8 +23,21 @@ from .pens import DrawingSet
 from .regions import Region, apply_mask_to_alpha
 from .versioning import Version, render_thumbnail
 
-WORKSPACE = Path.home() / ".plotter_studio"
+WORKSPACE = Path.home() / ".plotterforge"
+_LEGACY_WORKSPACE = Path.home() / ".plotter_studio"
 PROJECTS_DIR = WORKSPACE / "projects"
+
+
+def _migrate_legacy_workspace() -> None:
+    # One-time move of pre-rename data (~/.plotter_studio) to the new location.
+    if _LEGACY_WORKSPACE.is_dir() and not WORKSPACE.exists():
+        try:
+            _LEGACY_WORKSPACE.rename(WORKSPACE)
+        except OSError:
+            pass  # e.g. cross-device or permission issue; fall back to a fresh workspace
+
+
+_migrate_legacy_workspace()
 
 
 class VersionSnapshotError(ValueError):

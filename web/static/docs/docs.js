@@ -149,7 +149,7 @@
     menu.type = "button";
     menu.setAttribute("aria-controls", "docs-navigation");
     menu.setAttribute("aria-expanded", "false");
-    const brand = node("a", "docs-brand", "✦ Plotter Studio Manual");
+    const brand = node("a", "docs-brand", "✦ PlotterForge Manual");
     brand.href = "index.html";
     const actions = node("div", "docs-topbar-actions");
     const version = node("span", "docs-version", "July 2026");

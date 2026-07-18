@@ -20,7 +20,7 @@
 - Runtime artifacts live under ignored `artifacts/profiling/`; only explicit named baselines are committed.
 - Baselines are replaced only by an explicit command; CI never updates them.
 - No machine-specific wall-time threshold is added to unit tests.
-- The Studio UI and artist-facing workflow remain unchanged.
+- The PlotterForge UI and artist-facing workflow remain unchanged.
 - MPS reports synchronized timing and boundary memory; it does not claim CUDA-style kernel traces.
 
 ## File Structure

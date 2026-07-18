@@ -1,6 +1,6 @@
 #!/bin/sh
-# Plotter Studio — one-click launch (Metal/MPS).
-# Double-click in Finder, or run: ./start-studio.command
+# PlotterForge — one-click launch (Metal/MPS).
+# Double-click in Finder, or run: ./start-macos.command
 #
 # Offline launcher: it never installs, syncs, builds, downloads, or kills
 # processes. Run ./setup-macos.command first to prepare the environment.
@@ -25,7 +25,7 @@ echo "▸ Verifying environment…"
 uv run --locked --no-sync python -m web.env_check --backend mps || exit 1
 
 echo ""
-echo "▸ Starting Plotter Studio (MPS)…"
+echo "▸ Starting PlotterForge (MPS)…"
 echo "    Local:  http://localhost:$PORT"
 echo "  (Press Ctrl+C to stop.)"
 echo ""

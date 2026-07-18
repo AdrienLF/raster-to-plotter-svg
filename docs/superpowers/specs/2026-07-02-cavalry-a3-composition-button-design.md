@@ -22,7 +22,7 @@ Use Cavalry's documented scripting APIs:
 2. `api.set(compId, { resolution: [2970, 4200] })` to set its resolution.
 3. `api.setActiveComp(compId)` to activate it.
 
-The button is added through the existing script UI and does not require a new Plotter Studio endpoint.
+The button is added through the existing script UI and does not require a new PlotterForge endpoint.
 
 ## Verification
 

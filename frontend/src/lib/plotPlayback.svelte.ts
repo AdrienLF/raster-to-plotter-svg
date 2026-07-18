@@ -1,6 +1,6 @@
 // Plot preview / emulator playback engine.
 //
-// All animation state lives here (Svelte 5 runes) so Studio stays untouched.
+// All animation state lives here (Svelte 5 runes) so the app state stays untouched.
 // Geometry + timeline are stored as parallel typed arrays — compact for the
 // tens of thousands of vertices a dot drawing produces, and a binary search on
 // t1 maps a playback time to a segment in O(log n).

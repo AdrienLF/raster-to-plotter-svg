@@ -14,7 +14,7 @@ npm run e2e                       # or: npm run e2e:ui
 
 `global-setup.ts` builds the SPA, then spawns the backend with:
 
-- a **temp HOME** (`USERPROFILE`/`HOME`) so `~/.plotter_studio`, `~/.plotter_settings.json`,
+- a **temp HOME** (`USERPROFILE`/`HOME`) so `~/.plotterforge`, `~/.plotter_settings.json`,
   the resume-job and paths-cache files never touch your real profile;
 - `PLOTTER_FAKE_SERIAL=1` — an in-memory Grbl stub so plot/manual flows run with no hardware;
 - `SAM2_AUTO_SETUP=0` — never downloads the segmentation model in tests.

@@ -667,7 +667,7 @@ export interface ShapeLayerT {
 
 - [ ] **Step 3: Store and load generator editor metadata**
 
-Add to `Studio`:
+Add to `PlotterForge`:
 
 ```typescript
   generatorEditor = $state<string | null>(null);

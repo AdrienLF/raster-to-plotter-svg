@@ -1,11 +1,11 @@
 ---
-name: launch-studio
-description: Launch Plotter Studio (this repo's Svelte + Flask web app) for local use or to verify a change. Use whenever the user asks to run, start, launch, or open the app/studio/server in this project.
+name: launch-plotterforge
+description: Launch PlotterForge (this repo's Svelte + Flask web app) for local use or to verify a change. Use whenever the user asks to run, start, launch, or open the app/studio/server in this project.
 ---
 
-# Launch Plotter Studio
+# Launch PlotterForge
 
-Plotter Studio is the web app in this repo: `engine/` (conversion engine) +
+PlotterForge is the web app in this repo: `engine/` (conversion engine) +
 `frontend/` (Svelte 5 SPA) + `web/server.py` (Flask API + plotter driver). It
 serves on **http://localhost:7438**.
 
@@ -27,8 +27,8 @@ serves on **http://localhost:7438**.
 
 3. **Launch (offline, no installs/builds):**
    ```sh
-   ./start-studio.command   # macOS
-   start-studio.bat         # Windows
+   ./start-macos.command   # macOS
+   start-windows.bat         # Windows
    ```
    This runs `uv run --locked --no-sync python -m web.server` after an
    environment check (`web.env_check --backend mps`). Run it with
@@ -55,11 +55,11 @@ already be running.
   launchers never kill the port owner, so stop that PID manually and retry.
 - **CUDA/MPS unavailable** → `web.env_check` reports it; check GPU
   driver/hardware, then rerun setup.
-- **`Plotter Studio setup is incomplete: missing …`** → SAM2/Torch/checkpoint
+- **`PlotterForge setup is incomplete: missing …`** → SAM2/Torch/checkpoint
   absent at runtime; rerun setup (the server itself never installs anything).
 
 ## Legacy GUI (not the web app)
 
-`uv run python main.py` launches the older customtkinter desktop GUI
+`uv run python legacy/main.py` launches the older customtkinter desktop GUI
 (`stipple.py` / `svg_export.py`). Only use this if the user explicitly asks
-for the legacy GUI rather than Plotter Studio.
+for the legacy GUI rather than PlotterForge.

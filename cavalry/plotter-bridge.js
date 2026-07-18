@@ -1,4 +1,4 @@
-// Cavalry → Plotter Studio live bridge.
+// Cavalry → PlotterForge live bridge.
 //
 // Install: copy this file into Cavalry's Scripts folder
 // (Help ▸ Show Scripts Folder), then open it via Window ▸ Scripts ▸ plotter-bridge.
@@ -6,7 +6,7 @@
 // frame as SVG and posts it to the plotter app, which keeps a "Cavalry Live"
 // layer in sync on the A3 preview.
 //
-// Requires the plotter app running (start-studio.bat, port 7438).
+// Requires the plotter app running (start-windows.bat, port 7438).
 
 var SERVER = "http://localhost:7438";
 var DEBOUNCE_MS = 500;
@@ -362,7 +362,7 @@ bakeTessellation.onClick = function () {
 // Bakes the current composition as a Shape Dither stamp: with linked
 // parameters, 32 states are swept from their Light to Dark values (state 0 =
 // highlight artwork, state 31 = shadow artwork); with none, a single static
-// state is baked and Plotter Studio carries tone by scaling alone. Shares the
+// state is baked and PlotterForge carries tone by scaling alone. Shares the
 // parameter list above with tessellation baking.
 
 function bakeShape() {
@@ -514,13 +514,13 @@ function push() {
     if (client.status() === 200) {
       status.setText("Sent frame " + api.getFrame());
     } else if (client.status() === 202) {
-      status.setText("Waiting — choose in Plotter Studio (continue or new layer)");
+      status.setText("Waiting — choose in PlotterForge (continue or new layer)");
     } else {
       status.setText("Server error " + client.status());
     }
   } catch (e) {
     // Server down or render failed: show once, stay quiet until next change.
-    status.setText("Plotter app offline (start-studio.bat)");
+    status.setText("Plotter app offline (start-windows.bat)");
   }
 }
 

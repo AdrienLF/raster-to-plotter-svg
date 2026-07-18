@@ -55,7 +55,7 @@ export default async function globalSetup() {
     execSync("npm run build", { cwd: FRONTEND, stdio: "inherit" });
   }
 
-  // Isolated HOME so the backend's ~/.plotter_studio, ~/.plotter_settings.json,
+  // Isolated HOME so the backend's ~/.plotterforge, ~/.plotter_settings.json,
   // resume-job and paths-cache files never touch the real user profile.
   const home = mkdtempSync(join(tmpdir(), "plotter-e2e-"));
   // Isolated, locked, runtime-only environment: Playwright cannot inherit or

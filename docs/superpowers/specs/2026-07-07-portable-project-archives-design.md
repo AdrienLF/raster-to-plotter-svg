@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let a user save the complete current Plotter Studio project as one portable
+Let a user save the complete current PlotterForge project as one portable
 file, then open that file later as a new project and continue editing it.
 Existing automatic local persistence remains unchanged.
 

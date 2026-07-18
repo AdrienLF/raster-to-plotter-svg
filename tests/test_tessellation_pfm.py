@@ -1,4 +1,4 @@
-"""Tessellation PFM registration and Studio parameter schema."""
+"""Tessellation PFM registration and PlotterForge parameter schema."""
 
 from PIL import Image
 

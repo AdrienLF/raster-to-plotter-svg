@@ -870,7 +870,7 @@ Record evidence for:
 Create `docs/product-roadmap.md` with:
 
 ```markdown
-# Plotter Studio Product Roadmap
+# PlotterForge Product Roadmap
 
 ## Product assessment
 ## What is already strong
@@ -915,7 +915,7 @@ Expected: every named section contains concrete prose and no whitespace errors a
 
 ```powershell
 git add docs/product-roadmap.md
-git commit -m "docs: rank the next Plotter Studio improvements"
+git commit -m "docs: rank the next PlotterForge improvements"
 ```
 
 ### Task 9: Final completion check

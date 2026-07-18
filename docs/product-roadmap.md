@@ -1,8 +1,8 @@
-# Plotter Studio Product Roadmap
+# PlotterForge Product Roadmap
 
 ## Product assessment
 
-Plotter Studio is already a capable single-user artwork workstation, not a prototype algorithm viewer. It combines a broad path-finding engine, from-scratch generation, layer composition, physical page and pen models, immutable versions, SVG export, and direct Grbl plotting. The verified branch has 84 Playwright tests covering 73 of 86 named user stories and 105 backend tests. Its strongest product trait is that creative settings are tied to real output and real hardware rather than isolated demos.
+PlotterForge is already a capable single-user artwork workstation, not a prototype algorithm viewer. It combines a broad path-finding engine, from-scratch generation, layer composition, physical page and pen models, immutable versions, SVG export, and direct Grbl plotting. The verified branch has 84 Playwright tests covering 73 of 86 named user stories and 105 backend tests. Its strongest product trait is that creative settings are tied to real output and real hardware rather than isolated demos.
 
 The product is best described as a strong private beta for an experienced plotter user. The core artwork loop is fast: the recorded C12 path-finding flow reaches a result in two interactions and M4 reaches its first export in three counted steps. The remaining gap is not raw feature count; it is confidence at the edges. A new user gets little contextual direction, save state is mostly implicit, several promising editing workflows are not yet regression-covered, and Start can drive a physical machine without a consolidated preflight.
 

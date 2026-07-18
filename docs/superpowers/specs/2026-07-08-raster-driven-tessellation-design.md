@@ -18,13 +18,13 @@ This feature includes:
 - a local custom-pattern library discovered by the existing PFM browser;
 - a Cavalry bridge workflow for defining a lattice, binding numeric
   parameters, baking 32 vector states, and installing or replacing a pattern;
-- common Studio controls for scale, placement, tone response, inversion, and
+- common PlotterForge controls for scale, placement, tone response, inversion, and
   duplicate-line removal;
 - validation, transactional installation, previews, and automated tests.
 
 The following are deliberately deferred:
 
-- a native Plotter Studio pattern editor;
+- a native PlotterForge pattern editor;
 - a separate response curve for each Cavalry binding;
 - non-numeric or discrete Cavalry attributes;
 - independent raster channels or fields for different bindings;
@@ -69,7 +69,7 @@ and adds a **Tessellation Pattern** section with:
 - a lattice preset: Rectangular, Brick, Hex/Isometric, or Custom;
 - editable custom vectors `A(dx, dy)` and `B(dx, dy)` when Custom is selected;
 - a binding table with Layer, Parameter, Light, Dark, and Remove columns;
-- **Add selected parameter** and **Bake to Plotter Studio** buttons;
+- **Add selected parameter** and **Bake to PlotterForge** buttons;
 - bake progress from state 1 through state 32 and a concise final status.
 
 The bridge lists script-visible scalar numeric attributes for the selected
@@ -94,9 +94,9 @@ Pressing Bake performs the following sequence:
    session.
 5. Restore all original attribute values in a guaranteed cleanup path,
    including render, upload, and validation failures.
-6. Ask Studio to validate and atomically install the complete package.
+6. Ask PlotterForge to validate and atomically install the complete package.
 
-The bridge bakes linearly. Tone response remains a Studio rendering control,
+The bridge bakes linearly. Tone response remains a PlotterForge rendering control,
 so the artist can tune the source-image mapping without rebaking Cavalry.
 
 Rebaking the same normalized pattern name replaces that library entry
@@ -127,7 +127,7 @@ states are generated deterministically from compact procedural definitions,
 then consumed by the same placement, tone selection, interpolation, and
 deduplication code as custom packages.
 
-Custom patterns live under the Plotter Studio workspace in a dedicated pattern
+Custom patterns live under the PlotterForge workspace in a dedicated pattern
 library and are loaded into the PFM registry at server startup. A successful
 installation also registers or replaces the PFM immediately, so restarting the
 app is unnecessary. Custom PFMs use stable IDs beneath a reserved
@@ -225,7 +225,7 @@ rename.
 - The bridge restores all bound attributes after every bake attempt.
 - A state render or upload failure stops the bake and identifies the failing
   state without installing partial content.
-- Studio import failures return a concise user-facing error while retaining
+- PlotterForge import failures return a concise user-facing error while retaining
   diagnostic detail in the existing server log.
 - Custom-pattern load failures are isolated: one corrupt package does not stop
   built-ins or other custom patterns from registering.

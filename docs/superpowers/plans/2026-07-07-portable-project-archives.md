@@ -92,7 +92,7 @@ class ProjectArchiveTest(unittest.TestCase):
             metadata = json.loads(archive.read('archive.json'))
             manifest = json.loads(archive.read('project.json'))
 
-        self.assertEqual(metadata, {'application': 'Plotter Studio', 'format_version': 1})
+        self.assertEqual(metadata, {'application': 'PlotterForge', 'format_version': 1})
         self.assertEqual(manifest['id'], self.project.id)
         self.assertIn('source.bin', names)
         self.assertIn(self.layer.svg_path, names)
@@ -134,7 +134,7 @@ from pathlib import Path, PurePosixPath
 
 from .project import Project
 
-ARCHIVE_MIMETYPE = 'application/vnd.plotter-studio.project+zip'
+ARCHIVE_MIMETYPE = 'application/vnd.plotterforge.project+zip'
 ARCHIVE_FORMAT_VERSION = 1
 
 
@@ -189,7 +189,7 @@ def build_project_archive(project: Project) -> io.BytesIO:
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
             'archive.json',
-            json.dumps({'application': 'Plotter Studio', 'format_version': ARCHIVE_FORMAT_VERSION}, indent=2),
+            json.dumps({'application': 'PlotterForge', 'format_version': ARCHIVE_FORMAT_VERSION}, indent=2),
         )
         archive.writestr('project.json', json.dumps(manifest, indent=2))
         for relative in sorted(assets):
@@ -469,7 +469,7 @@ from engine.project_archive import _entry_path
             'field_masks': [], 'pfm_id': 'spiral', 'params': {}, 'versions': [],
         }
         return [
-            ('archive.json', json.dumps({'application': 'Plotter Studio', 'format_version': 1}).encode()),
+            ('archive.json', json.dumps({'application': 'PlotterForge', 'format_version': 1}).encode()),
             ('project.json', json.dumps(manifest).encode()),
         ]
 
@@ -565,7 +565,7 @@ from engine.project_archive import build_project_archive
     def test_export_endpoint_returns_named_project_archive(self):
         response = self.client.get(f'/api/projects/{server._project.id}/archive')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.mimetype, 'application/vnd.plotter-studio.project+zip')
+        self.assertEqual(response.mimetype, 'application/vnd.plotterforge.project+zip')
         self.assertIn('Start.plotter-project', response.headers['Content-Disposition'])
         with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
             self.assertIn('project.json', archive.namelist())
@@ -856,7 +856,7 @@ async function onProjectFile(event: Event) {
 <input
   bind:this={projectFileInput}
   type="file"
-  accept=".plotter-project,application/vnd.plotter-studio.project+zip,application/zip"
+  accept=".plotter-project,application/vnd.plotterforge.project+zip,application/zip"
   onchange={onProjectFile}
   style="display:none"
 />

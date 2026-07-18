@@ -1,8 +1,8 @@
 # Cavalry-authored tessellations
 
-Plotter Studio can turn a Cavalry composition into a reusable Path Finding
+PlotterForge can turn a Cavalry composition into a reusable Path Finding
 Module in the **Tessellation** family. Cavalry bakes one repeat unit at 32 tone
-states; Studio then repeats those vector states over any source image, choosing
+states; PlotterForge then repeats those vector states over any source image, choosing
 lighter or darker states from the image tone.
 
 This guide is both the artist workflow and the developer contract for the
@@ -10,8 +10,8 @@ Cavalry bridge, storage format, HTTP sequence, and validation limits.
 
 ## Artist workflow
 
-1. Start Plotter Studio with `./start-studio.command` on macOS or
-   `start-studio.bat` on Windows. The local server listens on
+1. Start PlotterForge with `./start-macos.command` on macOS or
+   `start-windows.bat` on Windows. The local server listens on
    `http://localhost:7438`.
 2. Install `cavalry/plotter-bridge.js` in Cavalry: open
    **Help > Show Scripts Folder**, copy the file there, then run it from
@@ -32,12 +32,12 @@ Cavalry bridge, storage format, HTTP sequence, and validation limits.
    set **Custom A** and **B** vectors.
 8. Click **Bake tessellation**. The bridge creates a session, renders and uploads
    32 SVG states, finalizes the package, restores your original Cavalry values,
-   and reports **Installed <name>** when Studio accepts it.
-9. In Plotter Studio, add or edit a path-finding layer, choose a style from the
+   and reports **Installed <name>** when PlotterForge accepts it.
+9. In PlotterForge, add or edit a path-finding layer, choose a style from the
    **Tessellation** family, then click **Apply / Regenerate**. The installed
    pattern uses the same controls as the built-in tessellations.
 
-Studio controls for every tessellation pattern:
+PlotterForge controls for every tessellation pattern:
 
 | Control | Effect |
 | --- | --- |
@@ -51,7 +51,7 @@ Studio controls for every tessellation pattern:
 
 ## Lattice presets
 
-The bridge sends lattice vectors in Cavalry composition units. Studio normalizes
+The bridge sends lattice vectors in Cavalry composition units. PlotterForge normalizes
 them by the active composition bounds before storing the package.
 
 | Preset | Vectors sent by the bridge | Use it for |
@@ -69,7 +69,7 @@ values.
 Custom pattern IDs are derived from the visible name. Reusing the same name
 replaces the existing package atomically: the new package is staged, validated,
 written, and then swapped into
-`~/.plotter_studio/tessellations/<pattern-id>/`. If the final rename fails, the
+`~/.plotterforge/tessellations/<pattern-id>/`. If the final rename fails, the
 previous package is restored.
 
 The Cavalry bridge records the original value of every bound attribute before
@@ -77,7 +77,7 @@ baking. It restores those original Cavalry values in a `finally` block after
 success or failure, so a failed session should not leave the scene stuck on one
 of the 32 sampled states.
 
-Already generated Studio layers keep their cached SVG geometry. If a project is
+Already generated PlotterForge layers keep their cached SVG geometry. If a project is
 opened later and the custom tessellation package is missing, the existing cached
 SVG survives, but the layer cannot regenerate that style until the package is
 installed again.
@@ -106,7 +106,7 @@ Binding fields:
 | `attribute_id` | Cavalry attribute ID captured from the selected numeric attribute. |
 | `light` | Attribute value for the lightest state. |
 | `dark` | Attribute value for the darkest state. |
-| `curve` | Shared Studio tone-response curve data. The current bridge sends `null`. |
+| `curve` | Shared PlotterForge tone-response curve data. The current bridge sends `null`. |
 
 Stored packages contain normalized unit-square tile paths, the normalized
 lattice vectors, the original binding metadata, and an update timestamp. SVG
@@ -124,7 +124,7 @@ The Cavalry bridge uses these local endpoints on `http://localhost:7438`.
 | `POST /api/tessellations/sessions/<session_id>/finalize` | Empty body. | Installed pattern metadata and refreshed PFM list. |
 | `GET /api/tessellations` | No body. | Installed custom package records. |
 
-Session directories live under `~/.plotter_studio/tessellation-imports/` while
+Session directories live under `~/.plotterforge/tessellation-imports/` while
 the bake is in progress. A session expires after one hour. Unknown, malformed,
 or expired session IDs return 404. Uploading the same state index twice returns
 409. Missing states at finalize time delete the session and return 400.
@@ -157,13 +157,13 @@ and non-collinear.
 ## Storage and startup
 
 Installed packages are stored at
-`~/.plotter_studio/tessellations/<pattern-id>/` with:
+`~/.plotterforge/tessellations/<pattern-id>/` with:
 
 - `pattern.json` - normalized paths, lattice, bindings, source, and timestamp.
 - `preview.png` - a 105 x 148 preview rendered over a light-to-dark gradient.
 
 At server startup, `web/server.py` loads every valid package from
-`~/.plotter_studio/tessellations/` and registers it with
+`~/.plotterforge/tessellations/` and registers it with
 `replace_tessellation_pattern`. Invalid package directories are skipped and
 logged; other valid packages still load.
 
@@ -179,5 +179,5 @@ logged; other valid packages still load.
   1. install and open `cavalry/plotter-bridge.js`;
   2. create or open a disposable repeat-unit composition;
   3. bind one numeric attribute with distinct **Light** and **Dark** values;
-  4. bake and confirm the style appears in Studio's **Tessellation** family;
+  4. bake and confirm the style appears in PlotterForge's **Tessellation** family;
   5. force a failed bake and confirm original Cavalry values are restored.

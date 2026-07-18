@@ -1,4 +1,4 @@
-"""Pen-plotter studio engine.
+"""PlotterForge engine.
 
 Pure-Python image -> geometry -> SVG pipeline. Knows nothing about Flask or
 serial hardware. The web layer wraps this and feeds the generated SVG into the

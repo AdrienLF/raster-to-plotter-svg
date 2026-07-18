@@ -2,18 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn Plotter Studio's accurate six-page manual into a navigable, reproducible product handbook with flagship tutorials, complete generated PFM reference, operator troubleshooting, current screenshots, and automated drift checks.
+**Goal:** Turn PlotterForge's accurate six-page manual into a navigable, reproducible product handbook with flagship tutorials, complete generated PFM reference, operator troubleshooting, current screenshots, and automated drift checks.
 
 **Architecture:** Keep the manual dependency-free and served from `web/static/docs/`. A shared `docs.js` injects navigation, search, table-of-contents, and page metadata into semantic static HTML, so every page remains readable without JavaScript. Python utilities validate the manual and generate the PFM catalog directly from the engine registry.
 
-**Tech Stack:** Static HTML/CSS/vanilla JavaScript, Python 3.13 standard library, Plotter Studio PFM registry, unittest/pytest, in-app browser verification.
+**Tech Stack:** Static HTML/CSS/vanilla JavaScript, Python 3.13 standard library, PlotterForge PFM registry, unittest/pytest, in-app browser verification.
 
 ## Global Constraints
 
 - Do not add runtime or frontend package dependencies.
 - Keep all manual pages usable as plain static HTML when JavaScript is disabled.
 - Treat engine schemas as the source of truth for PFM names, defaults, ranges, choices, groups, and help text.
-- Use only real Plotter Studio screenshots; never present generated application chrome as the real app.
+- Use only real PlotterForge screenshots; never present generated application chrome as the real app.
 - Preserve the existing dark visual language and artist-focused voice.
 - Keep the current Compose → Generate → Plot terminology.
 
@@ -174,11 +174,11 @@ Expected: failure for missing `tools.check_docs` and stale screenshot requiremen
 
 - [ ] **Step 3: Refresh screenshots and implement checker**
 
-Capture the current Rotate/Fit/Fill composition UI and a contradiction-free Shape Dither crop from an isolated local Studio project. Implement a standard-library checker and CLI with non-zero exit on drift.
+Capture the current Rotate/Fit/Fill composition UI and a contradiction-free Shape Dither crop from an isolated local PlotterForge project. Implement a standard-library checker and CLI with non-zero exit on drift.
 
 - [ ] **Step 4: Render and browser-verify every page**
 
-Run the isolated Studio server, open all manual routes, verify every image has non-zero natural dimensions, exercise search and keyboard dismissal, check responsive navigation, and inspect key screenshots visually.
+Run the isolated PlotterForge server, open all manual routes, verify every image has non-zero natural dimensions, exercise search and keyboard dismissal, check responsive navigation, and inspect key screenshots visually.
 
 - [ ] **Step 5: Run complete verification**
 

@@ -13,7 +13,7 @@
 - A pattern has exactly 32 ordered states.
 - Built-ins are Isometric Y, Hex Aperture, Truchet Weave, and Diamond Lattice.
 - Tone is averaged over the actual lattice parallelogram; cells with mean alpha below `0.05` are skipped.
-- The Studio controls are Columns, Rotation, Phase X, Phase Y, Tone Response, Invert Tone, and Remove Duplicate Lines.
+- The PlotterForge controls are Columns, Rotation, Phase X, Phase Y, Tone Response, Invert Tone, and Remove Duplicate Lines.
 - Generated output is ordinary plotter `Geometry`; existing pen distribution and drawing-area clipping remain unchanged.
 - No new runtime dependency is added.
 - The custom library, import endpoints, and Cavalry UI are implemented by the follow-on Cavalry authoring plan.
@@ -555,7 +555,7 @@ git commit -m "feat: add built-in tessellation patterns"
 
 ---
 
-### Task 5: Register tessellation PFMs and expose Studio controls
+### Task 5: Register tessellation PFMs and expose PlotterForge controls
 
 **Files:**
 - Create: `engine/pfm/tessellation.py`

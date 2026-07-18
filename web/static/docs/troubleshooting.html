@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Diagnose Plotter Studio image, path-finding, GPU, SAM, composition, export, serial, calibration, and resumable plotting problems.">
-<title>Troubleshooting · Plotter Studio Manual</title>
+<meta name="description" content="Diagnose PlotterForge image, path-finding, GPU, SAM, composition, export, serial, calibration, and resumable plotting problems.">
+<title>Troubleshooting · PlotterForge Manual</title>
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
 </head>
@@ -14,9 +14,9 @@
 <nav class="crumbs"><a href="index.html">Manual</a> › Troubleshooting</nav>
 
 <header class="hero">
-  <div class="kicker">Plotter Studio · Recovery</div>
+  <div class="kicker">PlotterForge · Recovery</div>
   <h1>Start with the symptom</h1>
-  <p class="lede">Plotter Studio keeps the last good geometry when it can and puts the actual failure message in the status bar. Read that message first; then use the smallest recovery that matches what you can see.</p>
+  <p class="lede">PlotterForge keeps the last good geometry when it can and puts the actual failure message in the status bar. Read that message first; then use the smallest recovery that matches what you can see.</p>
 </header>
 
 <div class="note"><strong>Protect the work first:</strong> do not delete a layer to fix a generation error. The previous SVG remains available after a failed regeneration. Save a Version before changing page, pen, or clipping settings during diagnosis.</div>
@@ -37,15 +37,15 @@
   <tr><td>Dense or slow output</td><td>Point density, Shape Dither columns, curve steps, growth iterations or a composite multiplied the geometry.</td><td>Cancel, halve the controlling density, cap point counts, or reduce columns. Draft on a thicker Pen width, then restore the measured pen before the final render.</td></tr>
   <tr><td>Layer says stale</td><td>A parameter changed after the last final render, or the visible result is only a live draft.</td><td>Click <em>Apply / Regenerate</em>. A final result says <em>clean</em>; drafts intentionally remain stale.</td></tr>
   <tr><td>Changing generator does nothing</td><td>Generator switching never overwrites automatically.</td><td>Press <strong>✦ Generate</strong>. If the selected layer already contains generation, choose New layer or explicitly confirm overwrite.</td></tr>
-  <tr><td>Custom style is missing</td><td>The Cavalry package or uploaded shape is not installed in this Studio workspace.</td><td>Rebake or upload it, then reopen the style picker. Existing cached layer geometry remains exportable even when its custom generator is unavailable.</td></tr>
+  <tr><td>Custom style is missing</td><td>The Cavalry package or uploaded shape is not installed in this PlotterForge workspace.</td><td>Rebake or upload it, then reopen the style picker. Existing cached layer geometry remains exportable even when its custom generator is unavailable.</td></tr>
 </table>
 
 <h2>SAM and acceleration</h2>
 <table>
   <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
-  <tr><td>SAM setup incomplete</td><td>SAM2, Torch, torchvision, or the selected checkpoint is absent.</td><td>Quit Studio and rerun <code>setup-windows.bat</code> or <code>./setup-macos.command</code>. The server never installs Python packages while running.</td></tr>
-  <tr><td>Checkpoint is downloading</td><td>You selected a SAM model whose checkpoint is not local yet.</td><td>Keep Studio open and watch the percentage. Do not start repeated downloads by changing models back and forth.</td></tr>
-  <tr><td>GPU fallback</td><td>CUDA/MPS is unavailable or a module uses a CPU-only stage.</td><td>Read the backend badge. If setup previously verified the GPU but the badge changed, restart Studio; otherwise rerun setup and inspect its hardware check. CPU output is valid, only slower.</td></tr>
+  <tr><td>SAM setup incomplete</td><td>SAM2, Torch, torchvision, or the selected checkpoint is absent.</td><td>Quit PlotterForge and rerun <code>setup-windows.bat</code> or <code>./setup-macos.command</code>. The server never installs Python packages while running.</td></tr>
+  <tr><td>Checkpoint is downloading</td><td>You selected a SAM model whose checkpoint is not local yet.</td><td>Keep PlotterForge open and watch the percentage. Do not start repeated downloads by changing models back and forth.</td></tr>
+  <tr><td>GPU fallback</td><td>CUDA/MPS is unavailable or a module uses a CPU-only stage.</td><td>Read the backend badge. If setup previously verified the GPU but the badge changed, restart PlotterForge; otherwise rerun setup and inspect its hardware check. CPU output is valid, only slower.</td></tr>
   <tr><td>Computer becomes unresponsive</td><td>The working raster or geometry count exceeds comfortable memory.</td><td>Cancel the job, reduce image dimensions or density, enable Drawing Area rescaling for drafts, and close other GPU-heavy applications.</td></tr>
 </table>
 
@@ -62,7 +62,7 @@
 <table>
   <tr><th>Symptom</th><th>Likely cause</th><th>Action</th></tr>
   <tr><td>Serial port will not open</td><td>Wrong port, plotter powered off, driver/permission issue, or another process owns the device.</td><td>Power the plotter, reopen Setup, select the current port, and close other plotter software. On a network bridge, verify the host is reachable before retrying.</td></tr>
-  <tr><td>Bridge conflict</td><td>The Inkscape/Tailscale serial bridge and Plotter Studio both want the same physical device.</td><td>Stop the bridge before direct Studio plotting, or configure Studio to use the bridge socket. Only one process can own the serial port.</td></tr>
+  <tr><td>Bridge conflict</td><td>The Inkscape/Tailscale serial bridge and PlotterForge both want the same physical device.</td><td>Stop the bridge before direct PlotterForge plotting, or configure PlotterForge to use the bridge socket. Only one process can own the serial port.</td></tr>
   <tr><td>Homing moves the wrong way</td><td>Machine firmware or coordinate orientation does not match the intended profile.</td><td>Stop immediately. Do not compensate with artwork placement. Verify the plotter profile, limit switches and firmware direction before another Home.</td></tr>
   <tr><td>Pen drags during travel</td><td>Pen up height/rate is too low, or the mechanism has play.</td><td>Use Manual over scrap to raise Pen up in small increments. Cycle repeatedly before running a job.</td></tr>
   <tr><td>Dots become blobs</td><td>Pen down height, lowering speed or settle delay is excessive.</td><td>Calibrate Pen up and down heights on scrap paper, then shorten the down delay. Change one value at a time.</td></tr>

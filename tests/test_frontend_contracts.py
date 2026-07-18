@@ -162,7 +162,7 @@ class FrontendContractsTest(unittest.TestCase):
             "## Artist workflow", "## Lattice presets",
             "## Rebaking and recovery", "## Package format",
             "## HTTP API", "## Limits",
-            "~/.plotter_studio/tessellations/",
+            "~/.plotterforge/tessellations/",
             "POST /api/tessellations/sessions", "GET /api/tessellations",
         ):
             self.assertIn(text, guide)

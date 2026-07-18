@@ -47,7 +47,7 @@
 <svelte:window onclick={close} onkeydown={(e) => e.key === "Escape" && close()} />
 
 <div class="menubar">
-  <span class="brand">✦ Plotter Studio</span>
+  <span class="brand">✦ PlotterForge</span>
 
   <div class="menu" class:open={open === "file"}>
     <button

@@ -31,7 +31,7 @@ A running list of what this software does. One line each. Updated on every commi
 
 ## Live bridges
 - **Cavalry capture layers** — Add an explicit Cavalry layer, then the Cavalry UI script (`cavalry/plotter-bridge.js`) streams debounced SVG frames into it while preserving its placement. Captures persist with the project; reopening the script asks whether to continue overwriting the live layer, start a new layer, or ignore that session.
-- **Cavalry tessellation authoring** — Select up to 16 numeric attributes, give each light/dark boundaries, choose a lattice preset or custom repeat vectors, and bake a reusable 32-state vector pattern into Studio. All parameters share one editable Studio tone-response curve.
+- **Cavalry tessellation authoring** — Select up to 16 numeric attributes, give each light/dark boundaries, choose a lattice preset or custom repeat vectors, and bake a reusable 32-state vector pattern into PlotterForge. All parameters share one editable PlotterForge tone-response curve.
 - **Cavalry mask parity** — SVG-native `<clipPath>` masks in captured frames are baked into the plotted geometry (plot preview, plot job, estimate, export), matching what Cavalry and the viewport show. Nested clips intersect; multi-shape clips union; full-page clips are pruned so circles keep native G2 arcs.
 - **Cavalry reconnect** — A ⟳ button on any Cavalry layer re-arms it as the live capture target, undoing an earlier "Ignore this session": it clears the dismissal and rebinds the layer to whatever Cavalry script is currently posting (adopting a parked frame immediately if one is held).
 
@@ -77,5 +77,5 @@ A running list of what this software does. One line each. Updated on every commi
 - **Performance profiling suite** — Deterministic CPU/MPS/CUDA/browser profiling with per-environment segmentation, named baselines, and warning-only trend reports that never fail CI (`tools/profile_suite.py`, see `docs/profiling.md`).
 
 ## Projects
-- **Project management** — Create, open, rename, delete projects; stored under `~/.plotter_studio/`.
+- **Project management** — Create, open, rename, delete projects; stored under `~/.plotterforge/`.
 - **Settings** — Persisted app settings (`/api/settings`).

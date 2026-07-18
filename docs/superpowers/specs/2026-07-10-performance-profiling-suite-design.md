@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Plotter Studio has useful performance signals but no unified profiling system. Backend wide events record operation and stage durations, and selected Playwright stories append wall-clock measurements to JSONL. Those measurements are not normalized, cover only a small subset of the application, do not capture CPU or memory profiles, do not compare like-for-like machines, and do not produce a trend report.
+PlotterForge has useful performance signals but no unified profiling system. Backend wide events record operation and stage durations, and selected Playwright stories append wall-clock measurements to JSONL. Those measurements are not normalized, cover only a small subset of the application, do not capture CPU or memory profiles, do not compare like-for-like machines, and do not produce a trend report.
 
 This work will add a full local and CI profiling suite and implement one measured optimization in SVG circle parsing. Performance regressions will be reported as warnings, not CI failures. Correctness and profiling-infrastructure failures will continue to fail.
 
@@ -38,7 +38,7 @@ The production optimization will use already-resolved circle center and radius v
 - Performance regressions will not fail CI.
 - CPU, MPS, and CUDA results will not be compared with each other.
 - The suite will not install or require native sampling profilers such as py-spy or Scalene.
-- The suite will not change Studio's user-facing behavior or UI.
+- The suite will not change PlotterForge's user-facing behavior or UI.
 - The suite will not profile physical plotter motion; it profiles preparation and command-generation software only.
 - The implementation will not refactor unrelated engine or server code.
 
@@ -84,7 +84,7 @@ Environment segmentation includes:
 - CPU architecture and processor identity;
 - Python implementation and version;
 - package and schema versions relevant to the workload;
-- actual Plotter Studio backend;
+- actual PlotterForge backend;
 - PyTorch version;
 - CUDA runtime, device name, and compute capability for CUDA;
 - Apple hardware identity and OS version for MPS;

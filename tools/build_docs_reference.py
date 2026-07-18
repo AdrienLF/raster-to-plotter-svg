@@ -140,7 +140,7 @@ def render_reference() -> str:
         sections.append(
             f'''<section class="pfm-family" id="family-{esc(family)}">
   <h2>{esc(FAMILY_NAMES.get(family, family.title()))}</h2>
-  <p>{esc(FAMILY_GUIDANCE.get(family, "A registered Plotter Studio path-finding family."))}</p>
+  <p>{esc(FAMILY_GUIDANCE.get(family, "A registered PlotterForge path-finding family."))}</p>
 {chr(10).join(pfm_entry(pfm) for pfm in pfms)}
 </section>'''
         )
@@ -150,8 +150,8 @@ def render_reference() -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Search all {len(catalog_pfms)} built-in Plotter Studio path-finding modules and inspect every parameter, default, range, choice, and help description.">
-<title>PFM reference · Plotter Studio Manual</title>
+<meta name="description" content="Search all {len(catalog_pfms)} built-in PlotterForge path-finding modules and inspect every parameter, default, range, choice, and help description.">
+<title>PFM reference · PlotterForge Manual</title>
 <link rel="stylesheet" href="docs.css">
 <script src="docs.js" defer></script>
 </head>
@@ -161,7 +161,7 @@ def render_reference() -> str:
 <nav class="crumbs"><a href="index.html">Manual</a> › PFM reference</nav>
 
 <header class="hero">
-  <div class="kicker">Plotter Studio · Generated reference</div>
+  <div class="kicker">PlotterForge · Generated reference</div>
   <h1>Every built-in style, from the source of truth</h1>
   <p class="lede">This catalog is generated from the same typed schemas that build the application controls. It currently contains {len(catalog_pfms)} built-in PFMs; defaults, limits and choices cannot silently drift away from the engine.</p>
 </header>
